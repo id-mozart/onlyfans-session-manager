@@ -43,7 +43,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
     // Return cleanup function
     const cleanup = () => ipcRenderer.removeListener('onlyfans-closed', listener);
     return cleanup;
-  }
+  },
+  
+  // Toggle DevTools для OnlyFans BrowserView
+  toggleDevTools: () => ipcRenderer.invoke('toggle-devtools')
 });
 
 console.log('✅ Electron preload script loaded');

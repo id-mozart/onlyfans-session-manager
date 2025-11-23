@@ -249,33 +249,85 @@
       background: #4ade80;
     }
 
-    .close-button {
+    /* OnlyFans overlay controls */
+    .of-overlay {
       position: fixed;
       top: 1rem;
       right: 1rem;
-      padding: 0.75rem 1.5rem;
-      background: rgba(239, 68, 68, 0.9);
+      z-index: 10000;
+      display: none;
+      gap: 0.75rem;
+      flex-direction: column;
+      align-items: flex-end;
+    }
+
+    .of-overlay.visible {
+      display: flex;
+    }
+
+    .of-session-info {
+      background: rgba(15, 23, 42, 0.95);
       backdrop-filter: blur(10px);
-      border: none;
+      border: 1px solid rgba(148, 163, 184, 0.3);
+      border-radius: 8px;
+      padding: 0.75rem 1rem;
+      color: #e2e8f0;
+      font-size: 0.875rem;
+      font-weight: 600;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .of-session-avatar {
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 700;
+      font-size: 0.875rem;
+      border: 2px solid rgba(255, 255, 255, 0.2);
+    }
+
+    .of-controls {
+      display: flex;
+      gap: 0.5rem;
+    }
+
+    .of-button {
+      padding: 0.75rem 1.25rem;
+      background: rgba(30, 41, 59, 0.95);
+      backdrop-filter: blur(10px);
+      border: 1px solid rgba(148, 163, 184, 0.3);
       border-radius: 8px;
       color: white;
       font-size: 0.875rem;
       font-weight: 600;
       cursor: pointer;
       transition: all 0.2s;
-      z-index: 1000;
-      display: none;
       box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
     }
 
-    .close-button.visible {
-      display: block;
-    }
-
-    .close-button:hover {
-      background: rgba(220, 38, 38, 0.95);
+    .of-button:hover {
+      background: rgba(51, 65, 85, 0.95);
       transform: translateY(-2px);
       box-shadow: 0 6px 16px rgba(0, 0, 0, 0.4);
+    }
+
+    .of-button.danger {
+      background: rgba(239, 68, 68, 0.9);
+      border-color: rgba(248, 113, 113, 0.3);
+    }
+
+    .of-button.danger:hover {
+      background: rgba(220, 38, 38, 0.95);
     }
 
     .error-message {
@@ -348,10 +400,24 @@
     </div>
   </div>
 
-  <!-- Close button (shows when OnlyFans is open) -->
-  <button class="close-button" id="closeButton" onclick="closeOnlyFans()">
-    ✕ Закрыть OnlyFans (ESC)
-  </button>
+  <!-- OnlyFans overlay controls (shows when OnlyFans is open) -->
+  <div class="of-overlay" id="ofOverlay">
+    <!-- Session info -->
+    <div class="of-session-info" id="sessionInfo">
+      <div class="of-session-avatar" id="sessionAvatar">?</div>
+      <div id="sessionName">Loading...</div>
+    </div>
+    
+    <!-- Control buttons -->
+    <div class="of-controls">
+      <button class="of-button" onclick="toggleDevTools()" title="Открыть/закрыть DevTools">
+        🔧 DevTools
+      </button>
+      <button class="of-button danger" onclick="closeOnlyFans()" title="Закрыть OnlyFans (ESC)">
+        ✕ Закрыть
+      </button>
+    </div>
+  </div>
 
   <script>
     let sessions = [];
@@ -477,7 +543,7 @@
         
         if (result.success) {
           console.log('✅ OnlyFans opened successfully');
-          document.getElementById('closeButton').classList.add('visible');
+          showOverlay(session);
         } else {
           console.error('❌ Failed to open OnlyFans:', result.error);
           showError('Не удалось открыть OnlyFans: ' + result.error);
@@ -492,10 +558,36 @@
       }
     }
 
+    function showOverlay(session) {
+      const overlay = document.getElementById('ofOverlay');
+      const sessionName = document.getElementById('sessionName');
+      const sessionAvatar = document.getElementById('sessionAvatar');
+      
+      overlay.classList.add('visible');
+      sessionName.textContent = session.name;
+      sessionAvatar.textContent = session.name.charAt(0).toUpperCase();
+    }
+
+    function hideOverlay() {
+      const overlay = document.getElementById('ofOverlay');
+      overlay.classList.remove('visible');
+    }
+
+    async function toggleDevTools() {
+      try {
+        const result = await window.electronAPI.toggleDevTools();
+        if (!result.success) {
+          console.error('Failed to toggle DevTools:', result.error);
+        }
+      } catch (error) {
+        console.error('Error toggling DevTools:', error);
+      }
+    }
+
     async function closeOnlyFans() {
       try {
         await window.electronAPI.closeOnlyFans();
-        document.getElementById('closeButton').classList.remove('visible');
+        hideOverlay();
         activeSessionId = null;
         renderSessions();
       } catch (error) {
@@ -528,7 +620,7 @@
 
       window.electronAPI.onOnlyFansClosed(() => {
         console.log('OnlyFans closed');
-        document.getElementById('closeButton').classList.remove('visible');
+        hideOverlay();
         activeSessionId = null;
         renderSessions();
         hideLoadingOverlay();

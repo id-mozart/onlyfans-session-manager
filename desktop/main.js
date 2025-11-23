@@ -206,8 +206,8 @@ async function setOnlyFansCookies(sessionData) {
     console.warn('⚠️ Не удалось очистить partition:', error);
   }
   
-  // Парсим cookie string
-  const cookieStrings = sessionData.cookie.split('; ').filter(s => s.trim().length > 0);
+  // Парсим cookie string (БЕЗ пробела после точки с запятой!)
+  const cookieStrings = sessionData.cookie.split(';').filter(s => s.trim().length > 0);
   
   // If no cookies to set, return early
   if (cookieStrings.length === 0) {
@@ -296,6 +296,23 @@ ipcMain.handle('get-platform', async () => {
     isElectron: true,
     appVersion: app.getVersion()
   };
+});
+
+ipcMain.handle('toggle-devtools', async () => {
+  try {
+    if (onlyFansView && onlyFansView.webContents) {
+      if (onlyFansView.webContents.isDevToolsOpened()) {
+        onlyFansView.webContents.closeDevTools();
+      } else {
+        onlyFansView.webContents.openDevTools();
+      }
+      return { success: true };
+    }
+    return { success: false, error: 'No OnlyFans view active' };
+  } catch (error) {
+    console.error('❌ Ошибка toggle DevTools:', error);
+    return { success: false, error: error.message };
+  }
 });
 
 // App lifecycle
