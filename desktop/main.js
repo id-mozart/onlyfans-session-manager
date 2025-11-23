@@ -816,6 +816,80 @@ ipcMain.handle('toggle-devtools', async () => {
   }
 });
 
+// IPC Handler для загрузки sessions (bypasses CORS)
+ipcMain.handle('fetch-sessions', async (event, serverUrl) => {
+  try {
+    console.log('📡 Fetching sessions from:', serverUrl);
+    
+    const response = await fetch(`${serverUrl}/api/sessions`, {
+      method: 'GET',
+      headers: {
+        'Accept': 'application/json'
+      }
+    });
+
+    if (!response.ok) {
+      throw new Error(`Server returned ${response.status}`);
+    }
+
+    const sessions = await response.json();
+    console.log(`✅ Loaded ${sessions.length} sessions`);
+    return { success: true, sessions };
+  } catch (error) {
+    console.error('❌ Error fetching sessions:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+// IPC Handler для проверки подключения к серверу
+ipcMain.handle('test-connection', async (event, serverUrl) => {
+  try {
+    console.log('🔌 Testing connection to:', serverUrl);
+    
+    const response = await fetch(`${serverUrl}/api/sessions`, {
+      method: 'GET',
+      headers: {
+        'Accept': 'application/json'
+      }
+    });
+
+    if (!response.ok) {
+      throw new Error(`Server returned ${response.status}`);
+    }
+
+    console.log('✅ Connection successful');
+    return { success: true };
+  } catch (error) {
+    console.error('❌ Connection failed:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+// IPC Handler для синхронизации sessions
+ipcMain.handle('sync-sessions', async (event, serverUrl) => {
+  try {
+    console.log('🔄 Syncing sessions from:', serverUrl);
+    
+    const response = await fetch(`${serverUrl}/api/sync-sessions`, {
+      method: 'POST',
+      headers: {
+        'Accept': 'application/json'
+      }
+    });
+
+    if (!response.ok) {
+      throw new Error(`Server returned ${response.status}`);
+    }
+
+    const result = await response.json();
+    console.log(`✅ Sync complete: ${result.updated} updated, ${result.created} created`);
+    return { success: true, result };
+  } catch (error) {
+    console.error('❌ Error syncing sessions:', error);
+    return { success: false, error: error.message };
+  }
+});
+
 // IPC Handlers для overlay (из BrowserView)
 ipcMain.on('overlay-toggle-devtools', () => {
   console.log('🔧 [IPC] Overlay: Toggle DevTools');

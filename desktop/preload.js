@@ -46,7 +46,16 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
   
   // Toggle DevTools для OnlyFans BrowserView
-  toggleDevTools: () => ipcRenderer.invoke('toggle-devtools')
+  toggleDevTools: () => ipcRenderer.invoke('toggle-devtools'),
+  
+  // Fetch sessions from server (bypasses CORS)
+  fetchSessions: (serverUrl) => ipcRenderer.invoke('fetch-sessions', serverUrl),
+  
+  // Test connection to server
+  testConnection: (serverUrl) => ipcRenderer.invoke('test-connection', serverUrl),
+  
+  // Sync sessions from external API
+  syncSessions: (serverUrl) => ipcRenderer.invoke('sync-sessions', serverUrl)
 });
 
 console.log('✅ Electron preload script loaded');

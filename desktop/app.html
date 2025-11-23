@@ -429,10 +429,14 @@
 
     async function loadSessions() {
       try {
-        const response = await fetch(serverUrl + '/api/sessions');
-        if (!response.ok) throw new Error('Failed to load sessions');
+        // Use IPC to bypass CORS
+        const result = await window.electronAPI.fetchSessions(serverUrl);
         
-        sessions = await response.json();
+        if (!result.success) {
+          throw new Error(result.error || 'Failed to load sessions');
+        }
+        
+        sessions = result.sessions;
         renderSessions();
       } catch (error) {
         console.error('Error loading sessions:', error);
@@ -465,13 +469,14 @@
       syncText.textContent = 'Синхронизация...';
 
       try {
-        const response = await fetch(serverUrl + '/api/sync-sessions', {
-          method: 'POST'
-        });
+        // Use IPC to bypass CORS
+        const syncResult = await window.electronAPI.syncSessions(serverUrl);
         
-        if (!response.ok) throw new Error('Sync failed');
+        if (!syncResult.success) {
+          throw new Error(syncResult.error || 'Sync failed');
+        }
         
-        const result = await response.json();
+        const result = syncResult.result;
         console.log('Sync result:', result);
         
         // Reload sessions after sync

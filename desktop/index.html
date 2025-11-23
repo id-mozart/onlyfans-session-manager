@@ -208,16 +208,11 @@
       showStatus('Подключение к серверу...', 'success');
 
       try {
-        // Test connection
-        const response = await fetch(serverUrl + '/api/sessions', {
-          method: 'GET',
-          headers: {
-            'Accept': 'application/json'
-          }
-        });
+        // Test connection via IPC (bypasses CORS)
+        const result = await window.electronAPI.testConnection(serverUrl);
 
-        if (!response.ok) {
-          throw new Error('Сервер недоступен');
+        if (!result.success) {
+          throw new Error(result.error || 'Сервер недоступен');
         }
 
         // Save URL and load app interface
