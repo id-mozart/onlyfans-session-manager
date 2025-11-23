@@ -3,7 +3,7 @@ const path = require('path');
 const https = require('https');
 
 // Server URL - можно настроить через env или конфиг
-const SERVER_URL = process.env.SERVER_URL || 'http://localhost:5000';
+const SERVER_URL = process.env.SERVER_URL || 'https://session-of.replit.app';
 
 let mainWindow;
 let onlyFansView;
@@ -11,26 +11,21 @@ let onlyFansView;
 // Map для хранения webRequest handlers по partition name (избегаем дублирования)
 const webRequestHandlers = new Map();
 
-// ========== RapidAPI OnlyFans Signer Integration ==========
-const OFAUTH_API_KEY = process.env.OFAUTH_API_KEY || '';
-const OFAUTH_API_HOST = 'api.ofauth.com';
+// ========== OFAuth Headers Generation via Server ==========
+// Desktop app обращается к нашему серверу для генерации headers
+// Сервер имеет OFAUTH_API_KEY и вызывает OFAuth API
 
-// Кэш для динамических headers (чтобы не вызывать API каждый раз)
+// Кэш для динамических headers (чтобы не вызывать server каждый раз)
 const headersCache = new Map();
 const CACHE_DURATION = 10000; // 10 секунд
 
 /**
- * Генерирует динамические OnlyFans headers через OFAuth API
+ * Генерирует динамические OnlyFans headers через наш сервер
  * @param {string} urlPath - Путь к OnlyFans API endpoint (например: /api2/v2/users/me)
  * @param {string} userId - ID пользователя OnlyFans (опционально для публичных endpoints)
  * @returns {Promise<Object>} - Объект с headers: { sign, time, 'app-token', 'x-of-rev' }
  */
 async function generateOnlyFansHeaders(urlPath, userId = null) {
-  if (!OFAUTH_API_KEY) {
-    console.warn('⚠️ OFAUTH_API_KEY не установлен - динамические headers не будут генерироваться');
-    return null;
-  }
-
   // Проверяем кэш
   const cacheKey = `${urlPath}:${userId || 'public'}`;
   const cached = headersCache.get(cacheKey);
@@ -42,88 +37,50 @@ async function generateOnlyFansHeaders(urlPath, userId = null) {
     // Формируем полный endpoint URL
     const fullEndpoint = `https://onlyfans.com${urlPath}`;
     
-    // Подготавливаем тело запроса (JSON format для OFAuth)
+    // Подготавливаем тело запроса
     const requestBody = {
-      endpoint: fullEndpoint,
-      timestamp: Date.now()
+      endpoint: fullEndpoint
     };
     
-    // Добавляем user_id только если он указан
+    // Добавляем userId только если он указан
     if (userId) {
-      requestBody.user_id = String(userId);
+      requestBody.userId = String(userId);
     }
-    
-    const postData = JSON.stringify(requestBody);
 
-    const options = {
-      hostname: OFAUTH_API_HOST,
-      path: '/v2/dynamic-rules/sign',
+    // Обращаемся к нашему серверу для генерации headers
+    const response = await fetch(`${SERVER_URL}/api/generate-ofauth-headers`, {
       method: 'POST',
       headers: {
-        'Content-Type': 'application/json',
-        'Content-Length': Buffer.byteLength(postData),
-        'apiKey': OFAUTH_API_KEY
-      }
-    };
-
-    return new Promise((resolve, reject) => {
-      const req = https.request(options, (res) => {
-        let data = '';
-
-        res.on('data', (chunk) => {
-          data += chunk;
-        });
-
-        res.on('end', () => {
-          try {
-            const parsed = JSON.parse(data);
-            
-            // Проверяем на ошибку
-            if (res.statusCode !== 200) {
-              console.error(`❌ OFAuth API error (${res.statusCode}):`, parsed);
-              resolve(null);
-              return;
-            }
-
-            // OFAuth возвращает signed объект с headers
-            if (!parsed.signed) {
-              console.error('❌ OFAuth API: нет signed объекта в ответе');
-              resolve(null);
-              return;
-            }
-
-            const headers = {
-              'sign': parsed.signed.sign,
-              'time': String(parsed.signed.time),
-              'app-token': parsed.signed['app-token'] || '33d57ade8c02dbc5a333db99ff9ae26a',
-              'x-of-rev': parsed.signed['x-of-rev'] || ''
-            };
-
-            // Кэшируем результат
-            headersCache.set(cacheKey, {
-              headers,
-              timestamp: Date.now()
-            });
-
-            console.log('✅ OFAuth: headers сгенерированы для', urlPath);
-            resolve(headers);
-          } catch (error) {
-            console.error('❌ Ошибка парсинга OFAuth ответа:', error);
-            resolve(null);
-          }
-        });
-      });
-
-      req.on('error', (error) => {
-        console.error('❌ OFAuth request error:', error);
-        resolve(null);
-      });
-
-      req.write(postData);
-      req.end();
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(requestBody)
     });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      console.error(`❌ Server error generating headers (${response.status}):`, errorData);
+      return null;
+    }
+
+    const data = await response.json();
+
+    if (!data.success || !data.headers) {
+      console.error('❌ Invalid server response - missing headers');
+      return null;
+    }
+
+    const headers = data.headers;
+
+    // Кэшируем результат
+    headersCache.set(cacheKey, {
+      headers,
+      timestamp: Date.now()
+    });
+
+    console.log('✅ OFAuth: headers получены от сервера для', urlPath);
+    return headers;
   } catch (error) {
-    console.error('❌ Ошибка generateOnlyFansHeaders:', error);
+    console.error('❌ Ошибка получения OFAuth headers от сервера:', error);
     return null;
   }
 }

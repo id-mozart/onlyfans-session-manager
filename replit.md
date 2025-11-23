@@ -21,13 +21,14 @@ The interface is inspired by Material Design 3, utilizing the Inter font for cle
 - **Activity Logging**: A complete audit trail of all CRUD operations is maintained with denormalized logging, ensuring logs persist even after session deletion. Logs can be filtered and display action type, timestamp, and session details.
 - **Export Functionality**: Sessions can be exported to JSON (full data) or CSV (excluding sensitive fields) directly from the application.
 - **External API Synchronization**: Features a robust, bidirectional sync system with external CRM/APIs. It includes manual sync, auto-sync every 5 minutes, and on-mount sync. Key aspects include atomic upsert logic using PostgreSQL `onConflictDoUpdate`, `xmax`-based detection for reliable INSERT vs. UPDATE, cookie normalization, race condition protection with `isPending` guards, debouncing, and toast notifications for feedback.
-- **OFAuth API Integration**: Complete integration with OFAuth API for dynamic OnlyFans API header generation. The system automatically generates cryptographic signatures and required headers for each OnlyFans API request. Features include:
-  - **Automatic Header Injection**: webRequest interceptor detects OnlyFans API calls and injects dynamically generated headers (sign, time, app-token, x-of-rev)
-  - **Smart Caching**: Headers are cached for 10 seconds to minimize API calls while maintaining security
-  - **Session-Specific Headers**: Combines OFAuth dynamic headers with session-specific data (x-bc device fingerprint, user-id, cookies) added locally
-  - **Fallback Support**: Falls back to static headers (x-bc, app-token) if OFAuth API is unavailable
-  - **Environment Configuration**: OFAUTH_API_KEY stored securely via Replit Secrets
-  - **Rate Limits**: 30 requests/minute to OFAuth Sign API endpoint
+- **OFAuth API Integration**: Complete server-side integration with OFAuth API for secure dynamic OnlyFans API header generation. Desktop app requests headers from server, which calls OFAuth API. Architecture: Desktop → Server `/api/generate-ofauth-headers` → OFAuth API. Features include:
+  - **Server-Side Generation**: OFAUTH_API_KEY stays on server (Replit Secrets), never exposed to desktop app
+  - **Automatic Header Injection**: webRequest interceptor in desktop app detects OnlyFans API calls and requests headers from server
+  - **Smart Caching**: Headers cached on both server and desktop app (10 seconds each) to minimize API calls
+  - **Session-Specific Headers**: Combines OFAuth dynamic headers (sign, time, app-token, x-of-rev) with session-specific data (x-bc device fingerprint, user-id, cookies) added locally
+  - **Fallback Support**: Falls back to static headers (x-bc, app-token) if server/OFAuth API unavailable
+  - **Secure Architecture**: Desktop app connects to `https://session-of.replit.app` by default (configurable via SERVER_URL env var)
+  - **Rate Limits**: 30 requests/minute to OFAuth Sign API endpoint, mitigated by dual-layer caching
 - **Electron Desktop App**: Provides a full desktop application experience with the following features:
   - **Session Sidebar**: Left sidebar displaying all available OnlyFans accounts with avatars, names, usernames, and emails
   - **One-Click Account Switching**: Click any account to instantly load it in a full-screen BrowserView
@@ -54,6 +55,7 @@ The interface is inspired by Material Design 3, utilizing the Inter font for cle
 ## External Dependencies
 - **PostgreSQL**: Primary database for all persistent data.
 - **OnlyFans**: The platform for which sessions are managed.
+- **OFAuth API**: Provides cryptographic signing for OnlyFans API requests (https://api.ofauth.com), OFAUTH_API_KEY stored in Replit Secrets.
 - **Chrome Extension**: Custom browser extension for direct cookie manipulation and session access.
 - **External CRM/API**: Used for bidirectional synchronization of session data, configured via `SYNC_API_URL` and `SYNC_API_KEY` environment variables.
 - **GitHub Actions**: Utilized for automated DMG builds for the Electron desktop application.

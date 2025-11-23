@@ -960,6 +960,79 @@ xattr -cr "/Applications/OnlyFans Session Manager.app"
     }
   });
 
+  // ========== OFAuth Headers Generation Endpoint ==========
+  // Desktop Electron app будет обращаться к этому endpoint для получения signed headers
+  app.post("/api/generate-ofauth-headers", async (req, res) => {
+    try {
+      const { endpoint, userId } = req.body;
+
+      if (!endpoint) {
+        return res.status(400).json({ error: "endpoint is required" });
+      }
+
+      const OFAUTH_API_KEY = process.env.OFAUTH_API_KEY;
+      if (!OFAUTH_API_KEY) {
+        return res.status(500).json({ 
+          error: "OFAUTH_API_KEY not configured on server" 
+        });
+      }
+
+      // Подготавливаем тело запроса к OFAuth API
+      const requestBody: any = {
+        endpoint: endpoint,
+        timestamp: Date.now()
+      };
+
+      if (userId) {
+        requestBody.user_id = String(userId);
+      }
+
+      // Вызываем OFAuth API
+      const response = await fetch('https://api.ofauth.com/v2/dynamic-rules/sign', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'apiKey': OFAUTH_API_KEY
+        },
+        body: JSON.stringify(requestBody)
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error(`❌ OFAuth API error (${response.status}):`, errorText);
+        return res.status(500).json({ 
+          error: "OFAuth API error",
+          details: errorText,
+          status: response.status
+        });
+      }
+
+      const data = await response.json();
+
+      if (!data.signed) {
+        return res.status(500).json({ 
+          error: "Invalid OFAuth API response - missing signed object" 
+        });
+      }
+
+      // Возвращаем signed headers
+      const headers = {
+        'sign': data.signed.sign,
+        'time': String(data.signed.time),
+        'app-token': data.signed['app-token'] || '33d57ade8c02dbc5a333db99ff9ae26a',
+        'x-of-rev': data.signed['x-of-rev'] || ''
+      };
+
+      res.json({ success: true, headers });
+    } catch (error: any) {
+      console.error('❌ Error generating OFAuth headers:', error);
+      res.status(500).json({ 
+        error: "Failed to generate OFAuth headers",
+        details: error.message 
+      });
+    }
+  });
+
   const httpServer = createServer(app);
   return httpServer;
 }
