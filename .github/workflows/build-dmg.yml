@@ -39,7 +39,7 @@ jobs:
         if: ${{ github.event.inputs.universal == 'true' }}
         working-directory: desktop
         run: |
-          npx electron-builder --mac --universal --publish=never --x64 --arm64 dmg
+          npx electron-builder --mac --universal --publish=never
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: false
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -47,19 +47,39 @@ jobs:
       - name: Build DMG (Current Architecture)
         if: ${{ github.event.inputs.universal != 'true' }}
         working-directory: desktop
-        run: npx electron-builder --mac --publish=never dmg
+        run: npx electron-builder --mac --publish=never
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: false
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       
+      - name: List build output
+        working-directory: desktop
+        run: |
+          echo "Contents of dist folder:"
+          ls -la dist/ || echo "No dist folder found"
+          echo "DMG files:"
+          ls -la dist/*.dmg 2>/dev/null || echo "No DMG files found"
+          echo "ZIP files:"
+          ls -la dist/*.zip 2>/dev/null || echo "No ZIP files found"
+      
       - name: Get DMG filename
         id: dmg-info
-        working-directory: desktop/dist
+        working-directory: desktop
         run: |
-          DMG_FILE=$(ls *.dmg 2>/dev/null | head -n 1 || echo "No DMG found")
-          echo "filename=$DMG_FILE" >> $GITHUB_OUTPUT
-          echo "Found DMG: $DMG_FILE"
-          ls -la
+          if [ -d "dist" ]; then
+            cd dist
+            DMG_FILE=$(ls *.dmg 2>/dev/null | head -n 1 || echo "")
+            if [ -n "$DMG_FILE" ]; then
+              echo "filename=$DMG_FILE" >> $GITHUB_OUTPUT
+              echo "Found DMG: $DMG_FILE"
+            else
+              echo "No DMG file found"
+              echo "filename=" >> $GITHUB_OUTPUT
+            fi
+          else
+            echo "No dist directory found"
+            echo "filename=" >> $GITHUB_OUTPUT
+          fi
       
       - name: Upload DMG artifact
         if: success()
@@ -67,14 +87,16 @@ jobs:
         with:
           name: macos-dmg
           path: desktop/dist/*.dmg
+          if-no-files-found: ignore
           retention-days: 30
       
       - name: Upload ZIP artifact (fallback)
-        if: failure()
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: macos-app-zip
           path: desktop/dist/*.zip
+          if-no-files-found: ignore
           retention-days: 30
       
       - name: Create Release
@@ -109,21 +131,22 @@ jobs:
             desktop/dist/*.zip
           draft: false
           prerelease: false
+          fail_on_unmatched_files: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       
       - name: Build Summary
+        if: always()
         run: |
           echo "### Build Status" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          if [ -f desktop/dist/*.dmg ]; then
+          if [ -n "${{ steps.dmg-info.outputs.filename }}" ]; then
             echo "✅ **DMG Build Successful!**" >> $GITHUB_STEP_SUMMARY
             echo "**DMG File:** ${{ steps.dmg-info.outputs.filename }}" >> $GITHUB_STEP_SUMMARY
           else
-            echo "⚠️ **DMG not created, but ZIP available**" >> $GITHUB_STEP_SUMMARY
-            echo "Check artifacts for the ZIP file" >> $GITHUB_STEP_SUMMARY
+            echo "⚠️ **DMG not created, check ZIP artifact**" >> $GITHUB_STEP_SUMMARY
           fi
           echo "**Version:** ${{ github.event.inputs.version || '1.0.0' }}" >> $GITHUB_STEP_SUMMARY
           echo "**Universal:** ${{ github.event.inputs.universal }}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "Download from the Actions tab or Releases page." >> $GITHUB_STEP_SUMMARY
+          echo "Check artifacts in the Actions tab." >> $GITHUB_STEP_SUMMARY
