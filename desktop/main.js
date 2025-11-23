@@ -206,8 +206,15 @@ async function setOnlyFansCookies(sessionData) {
     console.warn('⚠️ Не удалось очистить partition:', error);
   }
   
+  // ========== ДЕТАЛЬНОЕ ЛОГИРОВАНИЕ ==========
+  console.log('📋 RAW COOKIE STRING:', sessionData.cookie);
+  console.log('📏 Cookie length:', sessionData.cookie.length);
+  
   // Парсим cookie string (БЕЗ пробела после точки с запятой!)
   const cookieStrings = sessionData.cookie.split(';').filter(s => s.trim().length > 0);
+  
+  console.log('🔢 Parsed cookies count:', cookieStrings.length);
+  console.log('📝 Parsed cookies:', cookieStrings);
   
   // If no cookies to set, return early
   if (cookieStrings.length === 0) {
@@ -240,6 +247,7 @@ async function setOnlyFansCookies(sessionData) {
     };
 
     console.log(`🍪 Setting cookie: ${name.trim()} = ${value.trim().substring(0, 20)}...`);
+    console.log('   Full details:', JSON.stringify(cookieDetails, null, 2));
 
     cookiePromises.push(
       ses.cookies.set(cookieDetails)
@@ -259,6 +267,13 @@ async function setOnlyFansCookies(sessionData) {
   await Promise.all(cookiePromises);
   
   console.log(`✅ Cookies установлено: ${successCount}, ошибок: ${failCount}`);
+  
+  // Проверяем что cookies действительно установлены
+  const installedCookies = await ses.cookies.get({ url: 'https://onlyfans.com' });
+  console.log('🔍 VERIFICATION - Cookies в partition:', installedCookies.length);
+  installedCookies.forEach(c => {
+    console.log(`   ✓ ${c.name} = ${c.value.substring(0, 20)}...`);
+  });
   
   // If too many failures, clear partition and throw
   if (failCount > cookieStrings.length / 2) {
