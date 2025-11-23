@@ -38,8 +38,7 @@ jobs:
       - name: Build DMG (Universal)
         if: ${{ github.event.inputs.universal == 'true' }}
         working-directory: desktop
-        run: |
-          npx electron-builder --mac --universal --publish=never
+        run: npx electron-builder --mac --universal --publish=never
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: false
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -56,11 +55,13 @@ jobs:
         working-directory: desktop
         run: |
           echo "Contents of dist folder:"
-          ls -la dist/ || echo "No dist folder found"
+          ls -lah dist/ || echo "No dist folder found"
+          echo ""
           echo "DMG files:"
-          ls -la dist/*.dmg 2>/dev/null || echo "No DMG files found"
+          find dist -name "*.dmg" -type f 2>/dev/null || echo "No DMG files found"
+          echo ""
           echo "ZIP files:"
-          ls -la dist/*.zip 2>/dev/null || echo "No ZIP files found"
+          find dist -name "*.zip" -type f 2>/dev/null || echo "No ZIP files found"
       
       - name: Get DMG filename
         id: dmg-info
@@ -68,7 +69,7 @@ jobs:
         run: |
           if [ -d "dist" ]; then
             cd dist
-            DMG_FILE=$(ls *.dmg 2>/dev/null | head -n 1 || echo "")
+            DMG_FILE=$(find . -name "*.dmg" -type f | head -n 1 | sed 's|^\./||')
             if [ -n "$DMG_FILE" ]; then
               echo "filename=$DMG_FILE" >> $GITHUB_OUTPUT
               echo "Found DMG: $DMG_FILE"
@@ -85,68 +86,45 @@ jobs:
         if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: macos-dmg
+          name: macos-dmg-${{ github.event.inputs.version || '1.0.0' }}
           path: desktop/dist/*.dmg
-          if-no-files-found: ignore
-          retention-days: 30
+          if-no-files-found: warn
+          retention-days: 90
       
       - name: Upload ZIP artifact (fallback)
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: macos-app-zip
+          name: macos-app-zip-${{ github.event.inputs.version || '1.0.0' }}
           path: desktop/dist/*.zip
           if-no-files-found: ignore
-          retention-days: 30
-      
-      - name: Create Release
-        if: ${{ github.event.inputs.version != '' && success() }}
-        uses: softprops/action-gh-release@v1
-        with:
-          tag_name: v${{ github.event.inputs.version }}
-          name: Release v${{ github.event.inputs.version }}
-          body: |
-            ## OnlyFans Session Manager v${{ github.event.inputs.version }}
-            
-            ### 📦 Downloads
-            - **macOS**: Download the .dmg file below
-            
-            ### 🚀 Installation
-            1. Download the .dmg file
-            2. Double-click to open
-            3. Drag the app to Applications folder
-            4. Launch from Launchpad or Applications
-            
-            ### ⚠️ First Launch
-            If macOS blocks the app:
-            - Go to System Settings → Privacy & Security
-            - Click "Open Anyway"
-            
-            Or run in Terminal:
-            ```bash
-            xattr -cr "/Applications/OnlyFans Session Manager.app"
-            ```
-          files: |
-            desktop/dist/*.dmg
-            desktop/dist/*.zip
-          draft: false
-          prerelease: false
-          fail_on_unmatched_files: false
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          retention-days: 90
       
       - name: Build Summary
         if: always()
         run: |
-          echo "### Build Status" >> $GITHUB_STEP_SUMMARY
+          echo "# 🎉 Build Completed!" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## Build Information" >> $GITHUB_STEP_SUMMARY
+          echo "- **Version:** ${{ github.event.inputs.version || '1.0.0' }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Universal Build:** ${{ github.event.inputs.universal }}" >> $GITHUB_STEP_SUMMARY
           if [ -n "${{ steps.dmg-info.outputs.filename }}" ]; then
-            echo "✅ **DMG Build Successful!**" >> $GITHUB_STEP_SUMMARY
-            echo "**DMG File:** ${{ steps.dmg-info.outputs.filename }}" >> $GITHUB_STEP_SUMMARY
+            echo "- **DMG File:** \`${{ steps.dmg-info.outputs.filename }}\`" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "## ✅ Success!" >> $GITHUB_STEP_SUMMARY
+            echo "DMG file created successfully." >> $GITHUB_STEP_SUMMARY
           else
-            echo "⚠️ **DMG not created, check ZIP artifact**" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "## ⚠️ Warning" >> $GITHUB_STEP_SUMMARY
+            echo "DMG file not created. Check ZIP artifact as fallback." >> $GITHUB_STEP_SUMMARY
           fi
-          echo "**Version:** ${{ github.event.inputs.version || '1.0.0' }}" >> $GITHUB_STEP_SUMMARY
-          echo "**Universal:** ${{ github.event.inputs.universal }}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "Check artifacts in the Actions tab." >> $GITHUB_STEP_SUMMARY
+          echo "## 📥 Download" >> $GITHUB_STEP_SUMMARY
+          echo "Scroll up to the **Artifacts** section and download:" >> $GITHUB_STEP_SUMMARY
+          echo "- \`macos-dmg-${{ github.event.inputs.version || '1.0.0' }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## 🚀 Installation" >> $GITHUB_STEP_SUMMARY
+          echo "1. Download and extract the artifact ZIP" >> $GITHUB_STEP_SUMMARY
+          echo "2. Double-click the .dmg file" >> $GITHUB_STEP_SUMMARY
+          echo "3. Drag the app to Applications folder" >> $GITHUB_STEP_SUMMARY
+          echo "4. If macOS blocks the app, go to System Settings → Privacy & Security → Click \"Open Anyway\"" >> $GITHUB_STEP_SUMMARY
