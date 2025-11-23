@@ -33,7 +33,7 @@ jobs:
       - name: Update version
         if: ${{ github.event.inputs.version != '' }}
         working-directory: desktop
-        run: npm version ${{ github.event.inputs.version }} --no-git-tag-version
+        run: npm version ${{ github.event.inputs.version }} --no-git-tag-version --allow-same-version
       
       - name: Build DMG (Universal)
         if: ${{ github.event.inputs.universal == 'true' }}
