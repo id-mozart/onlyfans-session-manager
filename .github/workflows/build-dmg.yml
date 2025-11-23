@@ -28,7 +28,7 @@ jobs:
 
       - name: Install dependencies
         working-directory: desktop
-        run: npm ci
+        run: npm install
 
       - name: Update version
         if: ${{ github.event.inputs.version != '' }}
