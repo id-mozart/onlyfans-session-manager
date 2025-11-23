@@ -75,6 +75,9 @@ async function createOnlyFansView(sessionData) {
     throw new Error('Invalid session data');
   }
 
+  // Сообщить UI о начале загрузки
+  mainWindow.webContents.send('onlyfans-loading');
+
   // Удалить предыдущий view если есть
   if (onlyFansView) {
     mainWindow.removeBrowserView(onlyFansView);
@@ -88,49 +91,61 @@ async function createOnlyFansView(sessionData) {
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
-      webSecurity: true, // Оставляем защиту включенной
+      webSecurity: true,
       partition: partitionName
     }
   });
 
-  mainWindow.addBrowserView(onlyFansView);
-
-  // Установить размеры (занимает всё окно) - используем content bounds
-  const bounds = mainWindow.getContentBounds();
-  onlyFansView.setBounds({ 
-    x: 0, 
-    y: 0, 
-    width: bounds.width, 
-    height: bounds.height 
-  });
+  // НЕ добавляем BrowserView сразу - добавим ПОСЛЕ загрузки страницы
+  // mainWindow.addBrowserView(onlyFansView); // УДАЛЕНО
 
   // Установить cookies перед загрузкой
   try {
     await setOnlyFansCookies(sessionData);
     console.log('✅ Cookies установлены, загружаем OnlyFans...');
+    
+    // Обработчики событий загрузки (устанавливаем ДО loadURL)
+    onlyFansView.webContents.on('did-finish-load', () => {
+      console.log('✅ OnlyFans загружен - показываем BrowserView');
+      
+      // ТЕПЕРЬ добавляем BrowserView и устанавливаем размеры
+      mainWindow.addBrowserView(onlyFansView);
+      const bounds = mainWindow.getContentBounds();
+      onlyFansView.setBounds({ 
+        x: 0, 
+        y: 0, 
+        width: bounds.width, 
+        height: bounds.height 
+      });
+      
+      mainWindow.webContents.send('onlyfans-loaded');
+    });
+
+    onlyFansView.webContents.on('did-fail-load', (event, errorCode, errorDescription) => {
+      console.error('❌ Ошибка загрузки OnlyFans:', errorCode, errorDescription);
+      mainWindow.webContents.send('onlyfans-error', errorDescription);
+      
+      // Очистка при ошибке
+      if (onlyFansView) {
+        onlyFansView.webContents.destroy();
+        onlyFansView = null;
+      }
+    });
+
+    // Начинаем загрузку (BrowserView ещё не показан)
     await onlyFansView.webContents.loadURL('https://onlyfans.com');
+    
   } catch (error) {
     console.error('❌ Ошибка установки cookies или загрузки:', error);
     mainWindow.webContents.send('onlyfans-error', error.message);
-    // Удалить view при ошибке
+    
+    // Очистка при ошибке
     if (onlyFansView) {
-      mainWindow.removeBrowserView(onlyFansView);
       onlyFansView.webContents.destroy();
       onlyFansView = null;
     }
-    throw error; // Re-throw to surface in IPC handler
+    throw error;
   }
-
-  // Логирование для отладки
-  onlyFansView.webContents.on('did-finish-load', () => {
-    console.log('✅ OnlyFans загружен');
-    mainWindow.webContents.send('onlyfans-loaded');
-  });
-
-  onlyFansView.webContents.on('did-fail-load', (event, errorCode, errorDescription) => {
-    console.error('❌ Ошибка загрузки OnlyFans:', errorCode, errorDescription);
-    mainWindow.webContents.send('onlyfans-error', errorDescription);
-  });
 
   // Открыть DevTools для OnlyFans view в dev режиме
   if (process.env.NODE_ENV === 'development') {

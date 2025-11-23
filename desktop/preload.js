@@ -13,6 +13,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getPlatform: () => ipcRenderer.invoke('get-platform'),
   
   // События от main process (с cleanup)
+  onOnlyFansLoading: (callback) => {
+    const listener = () => callback();
+    ipcRenderer.on('onlyfans-loading', listener);
+    // Return cleanup function
+    const cleanup = () => ipcRenderer.removeListener('onlyfans-loading', listener);
+    return cleanup;
+  },
+  
   onOnlyFansLoaded: (callback) => {
     const listener = () => callback();
     ipcRenderer.on('onlyfans-loaded', listener);

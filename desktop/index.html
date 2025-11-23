@@ -136,19 +136,25 @@
       border: 1px solid rgba(34, 197, 94, 0.5);
     }
 
+    .loading {
+      display: inline-block;
+      width: 20px;
+      height: 20px;
+      border: 3px solid rgba(255, 255, 255, 0.3);
+      border-top-color: white;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+      margin-left: 0.5rem;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
     .hidden {
       display: none;
     }
 
-    #appFrame {
-      position: fixed;
-      top: 0;
-      left: 0;
-      width: 100%;
-      height: 100%;
-      border: none;
-      background: white;
-    }
   </style>
 </head>
 <body>
@@ -162,8 +168,8 @@
         <input 
           type="text" 
           id="serverUrl" 
-          placeholder="https://your-replit-url.repl.co"
-          value="http://localhost:5000"
+          placeholder="https://session-of.replit.app"
+          value="https://session-of.replit.app"
         >
       </div>
       
@@ -180,11 +186,8 @@
     </div>
   </div>
 
-  <iframe id="appFrame" class="hidden"></iframe>
-
   <script>
     const setupContainer = document.getElementById('setupContainer');
-    const appFrame = document.getElementById('appFrame');
     const serverUrlInput = document.getElementById('serverUrl');
     const statusDiv = document.getElementById('status');
 
@@ -217,20 +220,23 @@
           throw new Error('Сервер недоступен');
         }
 
-        // Save URL and show app
+        // Save URL and load app interface
         localStorage.setItem('serverUrl', serverUrl);
         showStatus('✅ Подключено успешно!', 'success');
         
         setTimeout(() => {
-          setupContainer.classList.add('hidden');
-          appFrame.classList.remove('hidden');
-          appFrame.src = serverUrl;
+          loadAppInterface();
         }, 1000);
 
       } catch (error) {
         showStatus('❌ Не удалось подключиться к серверу. Проверьте URL и убедитесь что сервер запущен.', 'error');
         console.error('Connection error:', error);
       }
+    }
+
+    function loadAppInterface() {
+      // Redirect to app.html
+      window.location.href = './app.html';
     }
 
     function showStatus(message, type) {

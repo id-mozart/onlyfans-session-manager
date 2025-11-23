@@ -356,7 +356,7 @@
   <script>
     let sessions = [];
     let activeSessionId = null;
-    let serverUrl = localStorage.getItem('serverUrl') || 'http://localhost:5000';
+    let serverUrl = localStorage.getItem('serverUrl') || 'https://session-of.replit.app';
 
     // Load sessions on startup
     loadSessions();
@@ -515,8 +515,15 @@
 
     // Listen for OnlyFans events
     if (window.electronAPI) {
+      window.electronAPI.onOnlyFansLoading(() => {
+        console.log('OnlyFans loading...');
+        // Можно добавить UI индикатор загрузки здесь
+        showLoadingOverlay();
+      });
+
       window.electronAPI.onOnlyFansLoaded(() => {
         console.log('OnlyFans loaded');
+        hideLoadingOverlay();
       });
 
       window.electronAPI.onOnlyFansClosed(() => {
@@ -524,6 +531,7 @@
         document.getElementById('closeButton').classList.remove('visible');
         activeSessionId = null;
         renderSessions();
+        hideLoadingOverlay();
       });
 
       window.electronAPI.onOnlyFansError((error) => {
@@ -531,7 +539,41 @@
         showError('Ошибка OnlyFans: ' + error);
         activeSessionId = null;
         renderSessions();
+        hideLoadingOverlay();
       });
+    }
+
+    // Функции для индикатора загрузки
+    function showLoadingOverlay() {
+      const overlay = document.createElement('div');
+      overlay.id = 'loadingOverlay';
+      overlay.style.cssText = `
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(15, 23, 42, 0.95);
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        z-index: 1000;
+        color: white;
+      `;
+      overlay.innerHTML = `
+        <div class="spinner" style="width: 48px; height: 48px; border-width: 4px; margin-bottom: 1.5rem;"></div>
+        <div style="font-size: 1.25rem; font-weight: 600; margin-bottom: 0.5rem;">Загрузка OnlyFans...</div>
+        <div style="font-size: 0.875rem; color: #94a3b8;">Настройка сессии и установка cookies</div>
+      `;
+      document.body.appendChild(overlay);
+    }
+
+    function hideLoadingOverlay() {
+      const overlay = document.getElementById('loadingOverlay');
+      if (overlay) {
+        overlay.remove();
+      }
     }
 
     // Keyboard shortcuts
