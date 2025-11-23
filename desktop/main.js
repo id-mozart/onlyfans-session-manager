@@ -75,6 +75,8 @@ async function createOnlyFansView(sessionData) {
     throw new Error('Invalid session data');
   }
 
+  console.log('🚀 Начинаем загрузку OnlyFans для:', sessionData.name);
+
   // Сообщить UI о начале загрузки
   mainWindow.webContents.send('onlyfans-loading');
 
@@ -101,11 +103,17 @@ async function createOnlyFansView(sessionData) {
 
   // Установить cookies перед загрузкой
   try {
+    console.log('🍪 Устанавливаем cookies...');
     await setOnlyFansCookies(sessionData);
     console.log('✅ Cookies установлены, загружаем OnlyFans...');
     
+    // Создаём promise для отслеживания загрузки с таймаутом
+    let loadFinished = false;
+    
     // Обработчики событий загрузки (устанавливаем ДО loadURL)
     onlyFansView.webContents.on('did-finish-load', () => {
+      if (loadFinished) return;
+      loadFinished = true;
       console.log('✅ OnlyFans загружен - показываем BrowserView');
       
       // ТЕПЕРЬ добавляем BrowserView и устанавливаем размеры
@@ -122,18 +130,38 @@ async function createOnlyFansView(sessionData) {
     });
 
     onlyFansView.webContents.on('did-fail-load', (event, errorCode, errorDescription) => {
+      if (loadFinished) return;
+      loadFinished = true;
       console.error('❌ Ошибка загрузки OnlyFans:', errorCode, errorDescription);
       mainWindow.webContents.send('onlyfans-error', errorDescription);
       
       // Очистка при ошибке
       if (onlyFansView) {
+        mainWindow.removeBrowserView(onlyFansView);
         onlyFansView.webContents.destroy();
         onlyFansView = null;
       }
     });
 
     // Начинаем загрузку (BrowserView ещё не показан)
+    console.log('🌐 Загружаем https://onlyfans.com ...');
     await onlyFansView.webContents.loadURL('https://onlyfans.com');
+    
+    // Таймаут 30 секунд на загрузку
+    setTimeout(() => {
+      if (!loadFinished && onlyFansView) {
+        loadFinished = true;
+        console.error('⏱️ Таймаут загрузки OnlyFans (30 секунд)');
+        mainWindow.webContents.send('onlyfans-error', 'Таймаут загрузки (30 сек)');
+        
+        // Очистка
+        if (onlyFansView) {
+          mainWindow.removeBrowserView(onlyFansView);
+          onlyFansView.webContents.destroy();
+          onlyFansView = null;
+        }
+      }
+    }, 30000);
     
   } catch (error) {
     console.error('❌ Ошибка установки cookies или загрузки:', error);
