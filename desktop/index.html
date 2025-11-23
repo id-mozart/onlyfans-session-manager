@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>OnlyFans Session Manager</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      overflow: hidden;
+    }
+
+    .container {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      padding: 2rem;
+      text-align: center;
+    }
+
+    .logo {
+      font-size: 3rem;
+      font-weight: 700;
+      margin-bottom: 1rem;
+      background: linear-gradient(135deg, #fff 0%, #e0e0e0 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    .subtitle {
+      font-size: 1.25rem;
+      opacity: 0.9;
+      margin-bottom: 3rem;
+    }
+
+    .config-section {
+      background: rgba(255, 255, 255, 0.1);
+      backdrop-filter: blur(10px);
+      padding: 2rem;
+      border-radius: 16px;
+      max-width: 500px;
+      width: 100%;
+    }
+
+    .form-group {
+      margin-bottom: 1.5rem;
+      text-align: left;
+    }
+
+    label {
+      display: block;
+      font-weight: 600;
+      margin-bottom: 0.5rem;
+      font-size: 0.9rem;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    input {
+      width: 100%;
+      padding: 0.75rem 1rem;
+      border: 2px solid rgba(255, 255, 255, 0.3);
+      border-radius: 8px;
+      background: rgba(255, 255, 255, 0.1);
+      color: white;
+      font-size: 1rem;
+      transition: all 0.3s ease;
+    }
+
+    input:focus {
+      outline: none;
+      border-color: rgba(255, 255, 255, 0.6);
+      background: rgba(255, 255, 255, 0.15);
+    }
+
+    input::placeholder {
+      color: rgba(255, 255, 255, 0.5);
+    }
+
+    .btn {
+      width: 100%;
+      padding: 1rem 2rem;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      border: 2px solid white;
+      border-radius: 8px;
+      color: white;
+      font-size: 1rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.3s ease;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+
+    .btn:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 8px 16px rgba(0, 0, 0, 0.3);
+    }
+
+    .btn:active {
+      transform: translateY(0);
+    }
+
+    .help-text {
+      margin-top: 1rem;
+      font-size: 0.85rem;
+      opacity: 0.7;
+      line-height: 1.5;
+    }
+
+    .status {
+      margin-top: 1rem;
+      padding: 0.75rem;
+      border-radius: 8px;
+      font-size: 0.9rem;
+    }
+
+    .status.error {
+      background: rgba(239, 68, 68, 0.2);
+      border: 1px solid rgba(239, 68, 68, 0.5);
+    }
+
+    .status.success {
+      background: rgba(34, 197, 94, 0.2);
+      border: 1px solid rgba(34, 197, 94, 0.5);
+    }
+
+    .hidden {
+      display: none;
+    }
+
+    #appFrame {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      border: none;
+      background: white;
+    }
+  </style>
+</head>
+<body>
+  <div class="container" id="setupContainer">
+    <div class="logo">OnlyFans Session Manager</div>
+    <div class="subtitle">Desktop Application</div>
+    
+    <div class="config-section">
+      <div class="form-group">
+        <label for="serverUrl">Server URL</label>
+        <input 
+          type="text" 
+          id="serverUrl" 
+          placeholder="https://your-replit-url.repl.co"
+          value="http://localhost:5000"
+        >
+      </div>
+      
+      <button class="btn" onclick="connectToServer()">
+        Подключиться к серверу
+      </button>
+      
+      <div class="help-text">
+        Укажите URL вашего Replit сервера или локального сервера.<br>
+        Например: <code>https://onlyfans-session-manager.your-username.repl.co</code>
+      </div>
+
+      <div id="status" class="status hidden"></div>
+    </div>
+  </div>
+
+  <iframe id="appFrame" class="hidden"></iframe>
+
+  <script>
+    const setupContainer = document.getElementById('setupContainer');
+    const appFrame = document.getElementById('appFrame');
+    const serverUrlInput = document.getElementById('serverUrl');
+    const statusDiv = document.getElementById('status');
+
+    // Load saved server URL
+    const savedUrl = localStorage.getItem('serverUrl');
+    if (savedUrl) {
+      serverUrlInput.value = savedUrl;
+    }
+
+    async function connectToServer() {
+      const serverUrl = serverUrlInput.value.trim();
+      
+      if (!serverUrl) {
+        showStatus('Пожалуйста, укажите URL сервера', 'error');
+        return;
+      }
+
+      showStatus('Подключение к серверу...', 'success');
+
+      try {
+        // Test connection
+        const response = await fetch(serverUrl + '/api/sessions', {
+          method: 'GET',
+          headers: {
+            'Accept': 'application/json'
+          }
+        });
+
+        if (!response.ok) {
+          throw new Error('Сервер недоступен');
+        }
+
+        // Save URL and show app
+        localStorage.setItem('serverUrl', serverUrl);
+        showStatus('✅ Подключено успешно!', 'success');
+        
+        setTimeout(() => {
+          setupContainer.classList.add('hidden');
+          appFrame.classList.remove('hidden');
+          appFrame.src = serverUrl;
+        }, 1000);
+
+      } catch (error) {
+        showStatus('❌ Не удалось подключиться к серверу. Проверьте URL и убедитесь что сервер запущен.', 'error');
+        console.error('Connection error:', error);
+      }
+    }
+
+    function showStatus(message, type) {
+      statusDiv.textContent = message;
+      statusDiv.className = 'status ' + type;
+      statusDiv.classList.remove('hidden');
+    }
+
+    // Try auto-connect if URL is saved
+    if (savedUrl) {
+      setTimeout(() => {
+        connectToServer();
+      }, 500);
+    }
+  </script>
+</body>
+</html>
