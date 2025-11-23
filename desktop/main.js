@@ -123,12 +123,17 @@ async function createOnlyFansView(sessionData) {
         requestHeaders['x-bc'] = sessionData.xBc;
       }
       
-      // 2. User-Agent (на всякий случай, хотя уже установлен через setUserAgent)
+      // 2. КРИТИЧНО: user-id header для OnlyFans API
+      if (sessionData.userId) {
+        requestHeaders['user-id'] = sessionData.userId;
+      }
+      
+      // 3. User-Agent (на всякий случай, хотя уже установлен через setUserAgent)
       if (sessionData.userAgent && !requestHeaders['User-Agent']) {
         requestHeaders['User-Agent'] = sessionData.userAgent;
       }
       
-      // 3. Дополнительные headers для OnlyFans API (особенно для /api2/* endpoints)
+      // 4. Дополнительные headers для OnlyFans API (особенно для /api2/* endpoints)
       if (details.url.includes('/api')) {
         if (!requestHeaders['Referer']) {
           requestHeaders['Referer'] = 'https://onlyfans.com/';
@@ -156,7 +161,7 @@ async function createOnlyFansView(sessionData) {
     
     // Сохраняем handler для возможного удаления позже
     webRequestHandlers.set(partitionName, requestInterceptor);
-    console.log('✅ webRequest interceptor установлен (x-bc, User-Agent, API headers)');
+    console.log('✅ webRequest interceptor установлен (x-bc, user-id, User-Agent, API headers)');
   } else {
     console.log('ℹ️ webRequest interceptor уже установлен для этой partition');
   }
