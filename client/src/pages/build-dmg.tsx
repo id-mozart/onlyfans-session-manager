@@ -66,6 +66,29 @@ export default function BuildDMG() {
     },
   });
 
+  // Mutation to create release
+  const createReleaseMutation = useMutation({
+    mutationFn: async (params: { version: string; prerelease: boolean }) => {
+      const res = await apiRequest("POST", "/api/build/dmg/create-release", params);
+      return res.json();
+    },
+    onSuccess: (data) => {
+      toast({
+        title: "✅ Release создан!",
+        description: `Release v${data.version} успешно опубликован на GitHub`,
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/build/dmg/releases"] });
+    },
+    onError: (error: any) => {
+      const message = error?.message || "Не удалось создать release";
+      toast({
+        title: "Ошибка создания Release",
+        description: message,
+        variant: "destructive",
+      });
+    },
+  });
+
   const handleTriggerBuild = () => {
     triggerBuildMutation.mutate({ version, universal });
   };
@@ -261,6 +284,52 @@ export default function BuildDMG() {
           )}
         </CardContent>
       </Card>
+
+      {/* Create Release Card */}
+      {buildSuccess && (
+        <Card className="mb-6">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <ExternalLink className="h-5 w-5" />
+              Опубликовать Release
+            </CardTitle>
+            <CardDescription>
+              Создать GitHub Release из последней успешной сборки
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="bg-blue-50 dark:bg-blue-950 border border-blue-200 dark:border-blue-800 rounded-lg p-4 mb-4">
+              <p className="text-sm text-blue-900 dark:text-blue-100">
+                Release будет создан с DMG файлом из последней успешной сборки и опубликован на GitHub для публичного скачивания.
+              </p>
+            </div>
+            <Button
+              onClick={() => createReleaseMutation.mutate({ version, prerelease: false })}
+              disabled={createReleaseMutation.isPending || !version || version === '1.0.0'}
+              className="w-full"
+              size="lg"
+              data-testid="button-create-release"
+            >
+              {createReleaseMutation.isPending ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Создание Release...
+                </>
+              ) : (
+                <>
+                  <ExternalLink className="mr-2 h-4 w-4" />
+                  Создать Release v{version}
+                </>
+              )}
+            </Button>
+            {version === '1.0.0' && (
+              <p className="text-sm text-muted-foreground mt-2 text-center">
+                Укажите версию отличную от 1.0.0 чтобы создать Release
+              </p>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       {/* Download Card - GitHub Releases */}
       <Card>

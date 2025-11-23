@@ -748,6 +748,140 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Create GitHub Release from latest successful build artifact
+  app.post("/api/build/dmg/create-release", async (req, res) => {
+    try {
+      const config = await validateGitHubConfig();
+      if (!config.valid) {
+        return res.status(500).json({ error: config.error });
+      }
+      
+      const { client, owner, repo } = config;
+      const { version, prerelease = false } = req.body;
+
+      if (!version || version === '1.0.0') {
+        return res.status(400).json({ 
+          error: "Please provide a valid version number (not 1.0.0)" 
+        });
+      }
+
+      // Get latest successful workflow run
+      const { data: runsData } = await client.actions.listWorkflowRuns({
+        owner,
+        repo,
+        workflow_id: 'build-dmg.yml',
+        status: 'completed',
+        per_page: 1
+      });
+
+      const latestRun = runsData.workflow_runs?.[0];
+      
+      if (!latestRun || latestRun.conclusion !== 'success') {
+        return res.status(404).json({ 
+          error: "No successful build found. Please run a build first." 
+        });
+      }
+
+      // Get artifacts for this run
+      const { data: artifactsData } = await client.actions.listWorkflowRunArtifacts({
+        owner,
+        repo,
+        run_id: latestRun.id
+      });
+
+      const dmgArtifact = artifactsData.artifacts?.find((a: any) => 
+        a.name.startsWith('macos-dmg-')
+      );
+      
+      if (!dmgArtifact) {
+        return res.status(404).json({ 
+          error: "DMG artifact not found in latest build" 
+        });
+      }
+
+      // Download artifact
+      const { data: artifactDownload } = await client.actions.downloadArtifact({
+        owner,
+        repo,
+        artifact_id: dmgArtifact.id,
+        archive_format: 'zip'
+      });
+
+      // artifactDownload is a Buffer containing the zip file
+      // We need to extract the DMG file from it
+      const AdmZip = require('adm-zip');
+      const zip = new AdmZip(Buffer.from(artifactDownload as any));
+      const zipEntries = zip.getEntries();
+      
+      const dmgEntry = zipEntries.find((entry: any) => entry.entryName.endsWith('.dmg'));
+      
+      if (!dmgEntry) {
+        return res.status(500).json({ 
+          error: "DMG file not found in artifact" 
+        });
+      }
+
+      const dmgBuffer = dmgEntry.getData();
+      const dmgFilename = dmgEntry.entryName;
+
+      // Create GitHub Release
+      const { data: release } = await client.repos.createRelease({
+        owner,
+        repo,
+        tag_name: `v${version}`,
+        name: `Release v${version}`,
+        body: `## OnlyFans Session Manager v${version}
+
+### 📦 Downloads
+- **macOS**: Download the .dmg file below
+
+### 🚀 Installation
+1. Download the .dmg file
+2. Double-click to open
+3. Drag the app to Applications folder
+4. Launch from Launchpad or Applications
+
+### ⚠️ First Launch
+If macOS blocks the app:
+- Go to System Settings → Privacy & Security
+- Click "Open Anyway"
+
+Or run in Terminal:
+\`\`\`bash
+xattr -cr "/Applications/OnlyFans Session Manager.app"
+\`\`\``,
+        draft: false,
+        prerelease: prerelease
+      });
+
+      // Upload DMG as release asset
+      await client.repos.uploadReleaseAsset({
+        owner,
+        repo,
+        release_id: release.id,
+        name: dmgFilename,
+        data: dmgBuffer as any,
+        headers: {
+          'content-type': 'application/octet-stream',
+          'content-length': dmgBuffer.length
+        }
+      });
+
+      res.json({
+        success: true,
+        release_url: release.html_url,
+        tag_name: release.tag_name,
+        version: version
+      });
+    } catch (error: any) {
+      console.error("Error creating release:", error);
+      res.status(500).json({ 
+        error: "Failed to create release",
+        details: error.message 
+      });
+    }
+  });
+
   // Get list of GitHub Releases with DMG files (public downloads!)
   app.get("/api/build/dmg/releases", async (req, res) => {
     try {
