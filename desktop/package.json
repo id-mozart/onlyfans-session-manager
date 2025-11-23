@@ -34,28 +34,18 @@
       "output": "dist"
     },
     "files": ["main.js", "preload.js"],
-    "win": {
-      "target": ["nsis"]
-    },
     "mac": {
-      "target": {
-        "target": "dmg",
-        "arch": ["x64", "arm64"]
-      },
+      "target": ["dmg"],
       "category": "public.app-category.productivity",
       "hardenedRuntime": false,
-      "gatekeeperAssess": false,
-      "type": "distribution"
+      "gatekeeperAssess": false
     },
     "dmg": {
       "title": "${productName} ${version}",
-      "iconSize": 100,
-      "window": { "width": 600, "height": 400 },
-      "contents": [
-        { "x": 150, "y": 180, "type": "file" },
-        { "x": 450, "y": 180, "type": "link", "path": "/Applications" }
-      ],
       "artifactName": "${productName}-${version}-mac.${ext}"
+    },
+    "win": {
+      "target": ["nsis"]
     },
     "linux": {
       "target": ["AppImage", "deb"],
