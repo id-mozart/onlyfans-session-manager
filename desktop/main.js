@@ -104,8 +104,17 @@ async function createOnlyFansView(sessionData) {
 
   // ========== КРИТИЧНО! Установить User-Agent ДО загрузки ==========
   if (sessionData.userAgent) {
-    console.log('🔧 Устанавливаем User-Agent:', sessionData.userAgent.substring(0, 50) + '...');
+    console.log('🔧 Устанавливаем User-Agent:', sessionData.userAgent);
     onlyFansView.webContents.setUserAgent(sessionData.userAgent);
+    
+    // ПРОВЕРЯЕМ что User-Agent установлен
+    const actualUA = onlyFansView.webContents.getUserAgent();
+    console.log('🔍 VERIFICATION - User-Agent установлен:', actualUA === sessionData.userAgent ? '✅ ДА' : '❌ НЕТ');
+    if (actualUA !== sessionData.userAgent) {
+      console.error('❌ User-Agent НЕ совпадает!');
+      console.error('   Ожидается:', sessionData.userAgent);
+      console.error('   Реальный:', actualUA);
+    }
   } else {
     console.warn('⚠️ User-Agent отсутствует в sessionData!');
   }
@@ -147,6 +156,22 @@ async function createOnlyFansView(sessionData) {
           
           const result = await onlyFansView.webContents.executeJavaScript(localStorageScript);
           console.log('✅ localStorage установлен, результат:', result);
+          
+          // ПРОВЕРЯЕМ что localStorage действительно установлен
+          const verifyScript = `
+            (function() {
+              const xBc = localStorage.getItem('x-bc');
+              const userId = localStorage.getItem('userId');
+              const platformUserId = localStorage.getItem('platformUserId');
+              console.log('🔍 VERIFICATION - localStorage:');
+              console.log('  x-bc:', xBc ? xBc.substring(0, 20) + '...' : 'ОТСУТСТВУЕТ');
+              console.log('  userId:', userId || 'ОТСУТСТВУЕТ');
+              console.log('  platformUserId:', platformUserId || 'ОТСУТСТВУЕТ');
+              return { xBc: !!xBc, userId: !!userId, platformUserId: !!platformUserId };
+            })();
+          `;
+          const verification = await onlyFansView.webContents.executeJavaScript(verifyScript);
+          console.log('🔍 VERIFICATION результат:', verification);
           
           // После установки localStorage - перезагружаем страницу чтобы OnlyFans использовал новые данные
           console.log('🔄 Перезагружаем OnlyFans для применения localStorage...');
@@ -258,8 +283,23 @@ async function createOnlyFansView(sessionData) {
               ">✕ Закрыть</button>
             </div>
           </div>
-          
-          <script>
+        `;
+        
+        // Внедрить HTML и JavaScript отдельно (innerHTML НЕ выполняет <script> теги!)
+        await onlyFansView.webContents.executeJavaScript(`
+          (function() {
+            // Удалить старый overlay если есть
+            const oldOverlay = document.getElementById('desktop-overlay');
+            if (oldOverlay) oldOverlay.remove();
+            
+            // Добавить новый overlay (только HTML, без <script>)
+            const div = document.createElement('div');
+            div.innerHTML = \`${overlayHTML.replace(/`/g, '\\`')}\`;
+            document.body.appendChild(div.firstElementChild);
+            
+            console.log('✅ [DESKTOP] Overlay HTML внедрён');
+            
+            // ВАЖНО: Выполнить JavaScript для overlay (addEventListener и т.д.)
             // Hover effects
             const buttons = document.querySelectorAll('#desktop-overlay button');
             buttons.forEach(btn => {
@@ -274,19 +314,29 @@ async function createOnlyFansView(sessionData) {
             });
             
             // Button click handlers (используем preload API)
-            document.getElementById('desktop-devtools-btn').addEventListener('click', () => {
-              console.log('[DESKTOP] DevTools button clicked');
-              if (window.desktopOverlay) {
-                window.desktopOverlay.toggleDevTools();
-              }
-            });
+            const devToolsBtn = document.getElementById('desktop-devtools-btn');
+            if (devToolsBtn) {
+              devToolsBtn.addEventListener('click', () => {
+                console.log('[DESKTOP] DevTools button clicked');
+                if (window.desktopOverlay) {
+                  window.desktopOverlay.toggleDevTools();
+                } else {
+                  console.error('[DESKTOP] window.desktopOverlay не определён!');
+                }
+              });
+            }
             
-            document.getElementById('desktop-close-btn').addEventListener('click', () => {
-              console.log('[DESKTOP] Close button clicked');
-              if (window.desktopOverlay) {
-                window.desktopOverlay.closeOnlyFans();
-              }
-            });
+            const closeBtn = document.getElementById('desktop-close-btn');
+            if (closeBtn) {
+              closeBtn.addEventListener('click', () => {
+                console.log('[DESKTOP] Close button clicked');
+                if (window.desktopOverlay) {
+                  window.desktopOverlay.closeOnlyFans();
+                } else {
+                  console.error('[DESKTOP] window.desktopOverlay не определён!');
+                }
+              });
+            }
             
             // ESC key to close
             document.addEventListener('keydown', (e) => {
@@ -298,22 +348,7 @@ async function createOnlyFansView(sessionData) {
               }
             });
             
-            console.log('✅ [DESKTOP] Overlay event handlers установлены');
-          </script>
-        `;
-        
-        await onlyFansView.webContents.executeJavaScript(`
-          (function() {
-            // Удалить старый overlay если есть
-            const oldOverlay = document.getElementById('desktop-overlay');
-            if (oldOverlay) oldOverlay.remove();
-            
-            // Добавить новый overlay
-            const div = document.createElement('div');
-            div.innerHTML = \`${overlayHTML.replace(/`/g, '\\`')}\`;
-            document.body.appendChild(div.firstElementChild);
-            
-            console.log('✅ [DESKTOP] Overlay внедрён в страницу');
+            console.log('✅ [DESKTOP] Overlay event handlers установлены, window.desktopOverlay:', !!window.desktopOverlay);
             return true;
           })();
         `);
@@ -340,8 +375,9 @@ async function createOnlyFansView(sessionData) {
     });
 
     // Начинаем загрузку (BrowserView ещё не показан)
-    console.log('🌐 Загружаем https://onlyfans.com ...');
-    await onlyFansView.webContents.loadURL('https://onlyfans.com');
+    // ВАЖНО: Загружаем ЗАЩИЩЁННУЮ страницу (профиль) вместо главной, чтобы сразу проверить аутентификацию
+    console.log('🌐 Загружаем https://onlyfans.com/my/profile ...');
+    await onlyFansView.webContents.loadURL('https://onlyfans.com/my/profile');
     
     // Таймаут 30 секунд на загрузку
     setTimeout(() => {
@@ -431,19 +467,21 @@ async function setOnlyFansCookies(sessionData) {
       continue;
     }
 
+    // ВАЖНО: Устанавливаем cookie БЕЗ domain (пусть браузер сам определит)
+    // Это более надёжно чем указывать .onlyfans.com или onlyfans.com
     const cookieDetails = {
       url: 'https://onlyfans.com',
       name: name.trim(),
       value: value.trim(),
-      domain: '.onlyfans.com',
+      // domain: '.onlyfans.com', // НЕ указываем domain - пусть браузер определит
       path: '/',
       secure: true,
+      httpOnly: false, // ВАЖНО: OnlyFans читает cookies из JavaScript
       sameSite: 'no_restriction',
       expirationDate: Math.floor(Date.now() / 1000) + (365 * 24 * 60 * 60)
     };
 
     console.log(`🍪 Setting cookie: ${name.trim()} = ${value.trim().substring(0, 20)}...`);
-    console.log('   Full details:', JSON.stringify(cookieDetails, null, 2));
 
     cookiePromises.push(
       ses.cookies.set(cookieDetails)
