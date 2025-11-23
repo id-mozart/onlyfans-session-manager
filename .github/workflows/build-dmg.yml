@@ -38,7 +38,8 @@ jobs:
       - name: Build DMG (Universal)
         if: ${{ github.event.inputs.universal == 'true' }}
         working-directory: desktop
-        run: npm run build:mac:universal
+        run: |
+          npx electron-builder --mac --universal --publish=never --x64 --arm64 dmg
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: false
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -46,7 +47,7 @@ jobs:
       - name: Build DMG (Current Architecture)
         if: ${{ github.event.inputs.universal != 'true' }}
         working-directory: desktop
-        run: npm run build:mac
+        run: npx electron-builder --mac --publish=never dmg
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: false
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -55,19 +56,29 @@ jobs:
         id: dmg-info
         working-directory: desktop/dist
         run: |
-          DMG_FILE=$(ls *.dmg | head -n 1)
+          DMG_FILE=$(ls *.dmg 2>/dev/null | head -n 1 || echo "No DMG found")
           echo "filename=$DMG_FILE" >> $GITHUB_OUTPUT
           echo "Found DMG: $DMG_FILE"
+          ls -la
       
       - name: Upload DMG artifact
+        if: success()
         uses: actions/upload-artifact@v4
         with:
           name: macos-dmg
           path: desktop/dist/*.dmg
           retention-days: 30
       
+      - name: Upload ZIP artifact (fallback)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-app-zip
+          path: desktop/dist/*.zip
+          retention-days: 30
+      
       - name: Create Release
-        if: ${{ github.event.inputs.version != '' }}
+        if: ${{ github.event.inputs.version != '' && success() }}
         uses: softprops/action-gh-release@v1
         with:
           tag_name: v${{ github.event.inputs.version }}
@@ -93,7 +104,9 @@ jobs:
             ```bash
             xattr -cr "/Applications/OnlyFans Session Manager.app"
             ```
-          files: desktop/dist/*.dmg
+          files: |
+            desktop/dist/*.dmg
+            desktop/dist/*.zip
           draft: false
           prerelease: false
         env:
@@ -101,10 +114,16 @@ jobs:
       
       - name: Build Summary
         run: |
-          echo "### ✅ Build Completed!" >> $GITHUB_STEP_SUMMARY
+          echo "### Build Status" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**DMG File:** ${{ steps.dmg-info.outputs.filename }}" >> $GITHUB_STEP_SUMMARY
+          if [ -f desktop/dist/*.dmg ]; then
+            echo "✅ **DMG Build Successful!**" >> $GITHUB_STEP_SUMMARY
+            echo "**DMG File:** ${{ steps.dmg-info.outputs.filename }}" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "⚠️ **DMG not created, but ZIP available**" >> $GITHUB_STEP_SUMMARY
+            echo "Check artifacts for the ZIP file" >> $GITHUB_STEP_SUMMARY
+          fi
           echo "**Version:** ${{ github.event.inputs.version || '1.0.0' }}" >> $GITHUB_STEP_SUMMARY
           echo "**Universal:** ${{ github.event.inputs.universal }}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "Download the artifact from the Actions tab or the Releases page." >> $GITHUB_STEP_SUMMARY
+          echo "Download from the Actions tab or Releases page." >> $GITHUB_STEP_SUMMARY
