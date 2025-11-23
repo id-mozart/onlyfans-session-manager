@@ -7,6 +7,9 @@ const SERVER_URL = process.env.SERVER_URL || 'http://localhost:5000';
 let mainWindow;
 let onlyFansView;
 
+// Map для хранения webRequest handlers по partition name (избегаем дублирования)
+const webRequestHandlers = new Map();
+
 // Создать главное окно
 function createMainWindow() {
   mainWindow = new BrowserWindow({
@@ -101,6 +104,98 @@ async function createOnlyFansView(sessionData) {
 
   // НЕ добавляем BrowserView сразу - добавим ПОСЛЕ загрузки страницы
   // mainWindow.addBrowserView(onlyFansView); // УДАЛЕНО
+
+  // ========== КРИТИЧНО! Добавить x-bc header ко ВСЕМ запросам OnlyFans API ==========
+  const ses = session.fromPartition(partitionName);
+  
+  // Проверяем существует ли уже handler для этой partition (избегаем дублирования)
+  if (!webRequestHandlers.has(partitionName)) {
+    console.log('🔧 Настраиваем webRequest interceptor для partition:', partitionName);
+    
+    // Создаем handler для перехвата запросов
+    const requestInterceptor = (details, callback) => {
+      // ВАЖНО: Используем details.requestHeaders (НЕ details.headers!)
+      // Использование details.headers сломает cookies!
+      const requestHeaders = { ...details.requestHeaders };
+      
+      // 1. КРИТИЧНО: x-bc header для OnlyFans API
+      if (sessionData.xBc) {
+        requestHeaders['x-bc'] = sessionData.xBc;
+      }
+      
+      // 2. User-Agent (на всякий случай, хотя уже установлен через setUserAgent)
+      if (sessionData.userAgent && !requestHeaders['User-Agent']) {
+        requestHeaders['User-Agent'] = sessionData.userAgent;
+      }
+      
+      // 3. Дополнительные headers для OnlyFans API (особенно для /api2/* endpoints)
+      if (details.url.includes('/api')) {
+        if (!requestHeaders['Referer']) {
+          requestHeaders['Referer'] = 'https://onlyfans.com/';
+        }
+        if (!requestHeaders['Origin']) {
+          requestHeaders['Origin'] = 'https://onlyfans.com';
+        }
+        if (!requestHeaders['Accept']) {
+          requestHeaders['Accept'] = 'application/json, text/plain, */*';
+        }
+      }
+      
+      // Передаём модифицированные headers обратно
+      callback({ 
+        cancel: false, 
+        requestHeaders: requestHeaders 
+      });
+    };
+    
+    // Регистрируем interceptor
+    ses.webRequest.onBeforeSendHeaders(
+      { urls: ['https://onlyfans.com/*', 'https://*.onlyfans.com/*'] },
+      requestInterceptor
+    );
+    
+    // Сохраняем handler для возможного удаления позже
+    webRequestHandlers.set(partitionName, requestInterceptor);
+    console.log('✅ webRequest interceptor установлен (x-bc, User-Agent, API headers)');
+  } else {
+    console.log('ℹ️ webRequest interceptor уже установлен для этой partition');
+  }
+  
+  // ========== КРИТИЧНО! Session Cookie Persistence ==========
+  // OnlyFans использует session cookies которые не сохраняются между перезапусками
+  // Конвертируем session cookies в persistent cookies с expirationDate
+  ses.cookies.on('changed', async (event, cookie, cause, removed) => {
+    // Игнорируем удалённые cookies
+    if (removed) return;
+    
+    // Если это session cookie (без expirationDate) - конвертируем в persistent
+    if (cookie.session) {
+      try {
+        const expirationDate = Math.floor(Date.now() / 1000) + (30 * 24 * 60 * 60); // 30 дней
+        
+        // Устанавливаем cookie с expirationDate (делаем persistent)
+        await ses.cookies.set({
+          url: `${cookie.secure ? 'https' : 'http'}://${cookie.domain}${cookie.path}`,
+          name: cookie.name,
+          value: cookie.value,
+          domain: cookie.domain,
+          path: cookie.path,
+          secure: cookie.secure,
+          httpOnly: cookie.httpOnly,
+          sameSite: cookie.sameSite || 'unspecified',
+          expirationDate: expirationDate
+        });
+        
+        if (process.env.NODE_ENV === 'development') {
+          console.log(`🔄 Converted session cookie to persistent: ${cookie.name}`);
+        }
+      } catch (error) {
+        console.error('❌ Ошибка конвертации session cookie:', error);
+      }
+    }
+  });
+  
+  console.log('✅ Session cookie persistence handler установлен');
 
   // ========== КРИТИЧНО! Установить User-Agent ДО загрузки ==========
   if (sessionData.userAgent) {
