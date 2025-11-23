@@ -1,6 +1,6 @@
 {
   "name": "onlyfans-session-manager-desktop",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Desktop app for managing OnlyFans account sessions",
   "main": "main.js",
   "scripts": {
