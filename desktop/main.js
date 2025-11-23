@@ -94,7 +94,8 @@ async function createOnlyFansView(sessionData) {
       nodeIntegration: false,
       contextIsolation: true,
       webSecurity: true,
-      partition: partitionName
+      partition: partitionName,
+      preload: path.join(__dirname, 'browserViewPreload.js') // ← Добавляем preload!
     }
   });
 
@@ -121,7 +122,7 @@ async function createOnlyFansView(sessionData) {
     
     // Обработчики событий загрузки (устанавливаем ДО loadURL)
     onlyFansView.webContents.on('did-finish-load', async () => {
-      if (loadFinished) return;
+      // ========== ВАЖНО! Не используем loadFinished guard чтобы overlay переустанавливался ==========
       
       // Первая загрузка - устанавливаем localStorage и перезагружаем
       if (!localStorageSet) {
@@ -163,21 +164,165 @@ async function createOnlyFansView(sessionData) {
         return; // Выходим и ждём второй загрузки
       }
       
-      // Вторая загрузка (после reload) - показываем BrowserView
-      loadFinished = true;
-      console.log('✅ OnlyFans перезагружен с localStorage - показываем BrowserView');
+      // Вторая загрузка (после reload) - показываем BrowserView и внедряем overlay
+      if (!loadFinished) {
+        loadFinished = true;
+        console.log('✅ OnlyFans перезагружен с localStorage - показываем BrowserView первый раз');
       
-      // ТЕПЕРЬ добавляем BrowserView и устанавливаем размеры
-      mainWindow.addBrowserView(onlyFansView);
-      const bounds = mainWindow.getContentBounds();
-      onlyFansView.setBounds({ 
-        x: 0, 
-        y: 0, 
-        width: bounds.width, 
-        height: bounds.height 
-      });
+        // ТЕПЕРЬ добавляем BrowserView и устанавливаем размеры (только при первой загрузке)
+        mainWindow.addBrowserView(onlyFansView);
+        const bounds = mainWindow.getContentBounds();
+        onlyFansView.setBounds({ 
+          x: 0, 
+          y: 0, 
+          width: bounds.width, 
+          height: bounds.height 
+        });
+        
+        mainWindow.webContents.send('onlyfans-loaded');
+      }
       
-      mainWindow.webContents.send('onlyfans-loaded');
+      // ========== ВНЕДРЯЕМ/ПЕРЕУСТАНАВЛИВАЕМ OVERLAY ПРИ КАЖДОЙ ЗАГРУЗКЕ ==========
+      console.log('🎨 Внедряем overlay в OnlyFans страницу...');
+      
+      // ========== ВНЕДРЯЕМ OVERLAY ВНУТРЬ ONLYFANS СТРАНИЦЫ ==========
+      try {
+        const overlayHTML = `
+          <div id="desktop-overlay" style="
+            position: fixed;
+            top: 1rem;
+            right: 1rem;
+            z-index: 999999;
+            display: flex;
+            gap: 0.75rem;
+            flex-direction: column;
+            align-items: flex-end;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+          ">
+            <!-- Session info -->
+            <div style="
+              background: rgba(15, 23, 42, 0.95);
+              backdrop-filter: blur(10px);
+              border: 1px solid rgba(148, 163, 184, 0.3);
+              border-radius: 8px;
+              padding: 0.75rem 1rem;
+              color: #e2e8f0;
+              font-size: 0.875rem;
+              font-weight: 600;
+              box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+              display: flex;
+              align-items: center;
+              gap: 0.5rem;
+            ">
+              <div style="
+                width: 32px;
+                height: 32px;
+                border-radius: 50%;
+                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                font-weight: 700;
+                font-size: 0.875rem;
+                border: 2px solid rgba(255, 255, 255, 0.2);
+              ">${sessionData.name.charAt(0).toUpperCase()}</div>
+              <div>${sessionData.name}</div>
+            </div>
+            
+            <!-- Control buttons -->
+            <div style="display: flex; gap: 0.5rem;">
+              <button id="desktop-devtools-btn" style="
+                padding: 0.75rem 1.25rem;
+                background: rgba(30, 41, 59, 0.95);
+                backdrop-filter: blur(10px);
+                border: 1px solid rgba(148, 163, 184, 0.3);
+                border-radius: 8px;
+                color: white;
+                font-size: 0.875rem;
+                font-weight: 600;
+                cursor: pointer;
+                box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+              ">🔧 DevTools</button>
+              
+              <button id="desktop-close-btn" style="
+                padding: 0.75rem 1.25rem;
+                background: rgba(220, 38, 38, 0.95);
+                backdrop-filter: blur(10px);
+                border: 1px solid rgba(239, 68, 68, 0.3);
+                border-radius: 8px;
+                color: white;
+                font-size: 0.875rem;
+                font-weight: 600;
+                cursor: pointer;
+                box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+              ">✕ Закрыть</button>
+            </div>
+          </div>
+          
+          <script>
+            // Hover effects
+            const buttons = document.querySelectorAll('#desktop-overlay button');
+            buttons.forEach(btn => {
+              btn.addEventListener('mouseenter', () => {
+                btn.style.transform = 'translateY(-2px)';
+                btn.style.boxShadow = '0 6px 16px rgba(0, 0, 0, 0.4)';
+              });
+              btn.addEventListener('mouseleave', () => {
+                btn.style.transform = '';
+                btn.style.boxShadow = '0 4px 12px rgba(0, 0, 0, 0.3)';
+              });
+            });
+            
+            // Button click handlers (используем preload API)
+            document.getElementById('desktop-devtools-btn').addEventListener('click', () => {
+              console.log('[DESKTOP] DevTools button clicked');
+              if (window.desktopOverlay) {
+                window.desktopOverlay.toggleDevTools();
+              }
+            });
+            
+            document.getElementById('desktop-close-btn').addEventListener('click', () => {
+              console.log('[DESKTOP] Close button clicked');
+              if (window.desktopOverlay) {
+                window.desktopOverlay.closeOnlyFans();
+              }
+            });
+            
+            // ESC key to close
+            document.addEventListener('keydown', (e) => {
+              if (e.key === 'Escape') {
+                console.log('[DESKTOP] ESC key pressed');
+                if (window.desktopOverlay) {
+                  window.desktopOverlay.closeOnlyFans();
+                }
+              }
+            });
+            
+            console.log('✅ [DESKTOP] Overlay event handlers установлены');
+          </script>
+        `;
+        
+        await onlyFansView.webContents.executeJavaScript(`
+          (function() {
+            // Удалить старый overlay если есть
+            const oldOverlay = document.getElementById('desktop-overlay');
+            if (oldOverlay) oldOverlay.remove();
+            
+            // Добавить новый overlay
+            const div = document.createElement('div');
+            div.innerHTML = \`${overlayHTML.replace(/`/g, '\\`')}\`;
+            document.body.appendChild(div.firstElementChild);
+            
+            console.log('✅ [DESKTOP] Overlay внедрён в страницу');
+            return true;
+          })();
+        `);
+        
+        console.log('✅ Overlay внедрён в OnlyFans страницу');
+        
+      } catch (error) {
+        console.error('❌ Ошибка внедрения overlay:', error);
+      }
     });
 
     onlyFansView.webContents.on('did-fail-load', (event, errorCode, errorDescription) => {
@@ -379,6 +524,23 @@ ipcMain.handle('toggle-devtools', async () => {
     console.error('❌ Ошибка toggle DevTools:', error);
     return { success: false, error: error.message };
   }
+});
+
+// IPC Handlers для overlay (из BrowserView)
+ipcMain.on('overlay-toggle-devtools', () => {
+  console.log('🔧 [IPC] Overlay: Toggle DevTools');
+  if (onlyFansView && onlyFansView.webContents) {
+    if (onlyFansView.webContents.isDevToolsOpened()) {
+      onlyFansView.webContents.closeDevTools();
+    } else {
+      onlyFansView.webContents.openDevTools();
+    }
+  }
+});
+
+ipcMain.on('overlay-close-onlyfans', () => {
+  console.log('✕ [IPC] Overlay: Close OnlyFans');
+  closeOnlyFansView();
 });
 
 // App lifecycle
