@@ -3,6 +3,7 @@ import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { insertOnlyFansSessionSchema, insertActivityLogSchema } from "@shared/schema";
 import { z } from "zod";
+import AdmZip from "adm-zip";
 
 export async function registerRoutes(app: Express): Promise<Server> {
   // Get all sessions
@@ -809,7 +810,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // artifactDownload is a Buffer containing the zip file
       // We need to extract the DMG file from it
-      const AdmZip = require('adm-zip');
       const zip = new AdmZip(Buffer.from(artifactDownload as any));
       const zipEntries = zip.getEntries();
       
