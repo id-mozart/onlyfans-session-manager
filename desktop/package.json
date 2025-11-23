@@ -34,7 +34,6 @@
       "output": "dist"
     },
     "files": ["main.js", "preload.js", "icon.png"],
-    "publish": "never",
     "win": {
       "target": ["nsis"],
       "icon": "icon.png"
