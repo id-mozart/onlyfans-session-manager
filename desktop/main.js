@@ -21,12 +21,12 @@ function createMainWindow() {
       nodeIntegration: false,
       webSecurity: true
     },
-    backgroundColor: '#000000',
+    backgroundColor: '#667eea',
     show: false
   });
 
-  // Загрузить веб-интерфейс
-  mainWindow.loadURL(SERVER_URL);
+  // Загрузить локальный HTML файл
+  mainWindow.loadFile(path.join(__dirname, 'index.html'));
 
   // Показать окно когда готово
   mainWindow.once('ready-to-show', () => {
