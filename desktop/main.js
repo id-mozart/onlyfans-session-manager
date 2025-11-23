@@ -1,5 +1,6 @@
 const { app, BrowserWindow, BrowserView, ipcMain, session } = require('electron');
 const path = require('path');
+const https = require('https');
 
 // Server URL - можно настроить через env или конфиг
 const SERVER_URL = process.env.SERVER_URL || 'http://localhost:5000';
@@ -9,6 +10,123 @@ let onlyFansView;
 
 // Map для хранения webRequest handlers по partition name (избегаем дублирования)
 const webRequestHandlers = new Map();
+
+// ========== RapidAPI OnlyFans Signer Integration ==========
+const OFAUTH_API_KEY = process.env.OFAUTH_API_KEY || '';
+const OFAUTH_API_HOST = 'api.ofauth.com';
+
+// Кэш для динамических headers (чтобы не вызывать API каждый раз)
+const headersCache = new Map();
+const CACHE_DURATION = 10000; // 10 секунд
+
+/**
+ * Генерирует динамические OnlyFans headers через OFAuth API
+ * @param {string} urlPath - Путь к OnlyFans API endpoint (например: /api2/v2/users/me)
+ * @param {string} userId - ID пользователя OnlyFans (опционально для публичных endpoints)
+ * @returns {Promise<Object>} - Объект с headers: { sign, time, 'app-token', 'x-of-rev' }
+ */
+async function generateOnlyFansHeaders(urlPath, userId = null) {
+  if (!OFAUTH_API_KEY) {
+    console.warn('⚠️ OFAUTH_API_KEY не установлен - динамические headers не будут генерироваться');
+    return null;
+  }
+
+  // Проверяем кэш
+  const cacheKey = `${urlPath}:${userId || 'public'}`;
+  const cached = headersCache.get(cacheKey);
+  if (cached && (Date.now() - cached.timestamp) < CACHE_DURATION) {
+    return cached.headers;
+  }
+
+  try {
+    // Формируем полный endpoint URL
+    const fullEndpoint = `https://onlyfans.com${urlPath}`;
+    
+    // Подготавливаем тело запроса (JSON format для OFAuth)
+    const requestBody = {
+      endpoint: fullEndpoint,
+      timestamp: Date.now()
+    };
+    
+    // Добавляем user_id только если он указан
+    if (userId) {
+      requestBody.user_id = String(userId);
+    }
+    
+    const postData = JSON.stringify(requestBody);
+
+    const options = {
+      hostname: OFAUTH_API_HOST,
+      path: '/v2/dynamic-rules/sign',
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Content-Length': Buffer.byteLength(postData),
+        'apiKey': OFAUTH_API_KEY
+      }
+    };
+
+    return new Promise((resolve, reject) => {
+      const req = https.request(options, (res) => {
+        let data = '';
+
+        res.on('data', (chunk) => {
+          data += chunk;
+        });
+
+        res.on('end', () => {
+          try {
+            const parsed = JSON.parse(data);
+            
+            // Проверяем на ошибку
+            if (res.statusCode !== 200) {
+              console.error(`❌ OFAuth API error (${res.statusCode}):`, parsed);
+              resolve(null);
+              return;
+            }
+
+            // OFAuth возвращает signed объект с headers
+            if (!parsed.signed) {
+              console.error('❌ OFAuth API: нет signed объекта в ответе');
+              resolve(null);
+              return;
+            }
+
+            const headers = {
+              'sign': parsed.signed.sign,
+              'time': String(parsed.signed.time),
+              'app-token': parsed.signed['app-token'] || '33d57ade8c02dbc5a333db99ff9ae26a',
+              'x-of-rev': parsed.signed['x-of-rev'] || ''
+            };
+
+            // Кэшируем результат
+            headersCache.set(cacheKey, {
+              headers,
+              timestamp: Date.now()
+            });
+
+            console.log('✅ OFAuth: headers сгенерированы для', urlPath);
+            resolve(headers);
+          } catch (error) {
+            console.error('❌ Ошибка парсинга OFAuth ответа:', error);
+            resolve(null);
+          }
+        });
+      });
+
+      req.on('error', (error) => {
+        console.error('❌ OFAuth request error:', error);
+        resolve(null);
+      });
+
+      req.write(postData);
+      req.end();
+    });
+  } catch (error) {
+    console.error('❌ Ошибка generateOnlyFansHeaders:', error);
+    return null;
+  }
+}
 
 // Создать главное окно
 function createMainWindow() {
@@ -105,36 +223,83 @@ async function createOnlyFansView(sessionData) {
   // НЕ добавляем BrowserView сразу - добавим ПОСЛЕ загрузки страницы
   // mainWindow.addBrowserView(onlyFansView); // УДАЛЕНО
 
-  // ========== КРИТИЧНО! Добавить x-bc header ко ВСЕМ запросам OnlyFans API ==========
+  // ========== КРИТИЧНО! Добавить динамические headers ко ВСЕМ запросам OnlyFans API ==========
   const ses = session.fromPartition(partitionName);
   
   // Проверяем существует ли уже handler для этой partition (избегаем дублирования)
   if (!webRequestHandlers.has(partitionName)) {
     console.log('🔧 Настраиваем webRequest interceptor для partition:', partitionName);
     
-    // Создаем handler для перехвата запросов
-    const requestInterceptor = (details, callback) => {
+    // Создаем async handler для перехвата запросов
+    const requestInterceptor = async (details, callback) => {
       // ВАЖНО: Используем details.requestHeaders (НЕ details.headers!)
       // Использование details.headers сломает cookies!
       const requestHeaders = { ...details.requestHeaders };
       
-      // 1. КРИТИЧНО: x-bc header для OnlyFans API
-      if (sessionData.xBc) {
+      // Определяем является ли это API запросом
+      const isApiRequest = details.url.includes('/api2/') || details.url.includes('/api/');
+      
+      // ========== Динамические headers через OFAuth API (для API запросов) ==========
+      if (isApiRequest && sessionData.userId) {
+        try {
+          // Извлекаем путь из URL
+          const urlObj = new URL(details.url);
+          const urlPath = urlObj.pathname + urlObj.search;
+          
+          // Генерируем динамические headers через OFAuth
+          // OFAuth НЕ требует передавать x-bc или userAgent - только endpoint и user_id
+          const dynamicHeaders = await generateOnlyFansHeaders(urlPath, sessionData.userId);
+          
+          if (dynamicHeaders) {
+            // Добавляем динамические headers от OFAuth
+            if (dynamicHeaders.sign) requestHeaders['sign'] = dynamicHeaders.sign;
+            if (dynamicHeaders.time) requestHeaders['time'] = String(dynamicHeaders.time);
+            if (dynamicHeaders['app-token']) requestHeaders['app-token'] = dynamicHeaders['app-token'];
+            if (dynamicHeaders['x-of-rev']) requestHeaders['x-of-rev'] = dynamicHeaders['x-of-rev'];
+            
+            // КРИТИЧНО: x-bc добавляем из sessionData (device fingerprint)
+            if (sessionData.xBc) {
+              requestHeaders['x-bc'] = sessionData.xBc;
+            }
+            
+            if (process.env.NODE_ENV === 'development') {
+              console.log(`🔑 Добавлены OFAuth динамические headers для ${urlPath}`);
+            }
+          } else {
+            // Fallback на статические headers если OFAuth недоступен
+            if (sessionData.xBc) {
+              requestHeaders['x-bc'] = sessionData.xBc;
+            }
+            requestHeaders['app-token'] = '33d57ade8c02dbc5a333db99ff9ae26a';
+          }
+        } catch (error) {
+          console.error('❌ Ошибка генерации динамических headers:', error);
+          // Fallback на статические headers
+          if (sessionData.xBc) {
+            requestHeaders['x-bc'] = sessionData.xBc;
+          }
+          requestHeaders['app-token'] = '33d57ade8c02dbc5a333db99ff9ae26a';
+        }
+      } else if (sessionData.xBc) {
+        // Для не-API запросов используем статический x-bc
         requestHeaders['x-bc'] = sessionData.xBc;
       }
       
-      // 2. КРИТИЧНО: user-id header для OnlyFans API
+      // ========== Статические headers (всегда добавляем) ==========
+      
+      // 1. КРИТИЧНО: User-Id header для OnlyFans API
+      // Note: OnlyFans принимает как "user-id" так и "User-Id", но используем PascalCase
       if (sessionData.userId) {
-        requestHeaders['user-id'] = sessionData.userId;
+        requestHeaders['user-id'] = String(sessionData.userId);
       }
       
-      // 3. User-Agent (на всякий случай, хотя уже установлен через setUserAgent)
+      // 2. User-Agent (на всякий случай, хотя уже установлен через setUserAgent)
       if (sessionData.userAgent && !requestHeaders['User-Agent']) {
         requestHeaders['User-Agent'] = sessionData.userAgent;
       }
       
-      // 4. Дополнительные headers для OnlyFans API (особенно для /api2/* endpoints)
-      if (details.url.includes('/api')) {
+      // 3. Дополнительные headers для OnlyFans API
+      if (isApiRequest) {
         if (!requestHeaders['Referer']) {
           requestHeaders['Referer'] = 'https://onlyfans.com/';
         }
@@ -143,6 +308,36 @@ async function createOnlyFansView(sessionData) {
         }
         if (!requestHeaders['Accept']) {
           requestHeaders['Accept'] = 'application/json, text/plain, */*';
+        }
+        // Modern browser headers (from real OnlyFans browser traffic analysis)
+        if (!requestHeaders['Accept-Encoding']) {
+          requestHeaders['Accept-Encoding'] = 'gzip, deflate, br, zstd';
+        }
+        if (!requestHeaders['Accept-Language']) {
+          requestHeaders['Accept-Language'] = 'en-GB,en;q=0.9,ru-GB;q=0.8';
+        }
+        if (!requestHeaders['Priority']) {
+          requestHeaders['Priority'] = 'u=1, i';
+        }
+        // Security fetch headers
+        if (!requestHeaders['Sec-Fetch-Dest']) {
+          requestHeaders['Sec-Fetch-Dest'] = 'empty';
+        }
+        if (!requestHeaders['Sec-Fetch-Mode']) {
+          requestHeaders['Sec-Fetch-Mode'] = 'cors';
+        }
+        if (!requestHeaders['Sec-Fetch-Site']) {
+          requestHeaders['Sec-Fetch-Site'] = 'same-origin';
+        }
+        // Chrome User Agent Client Hints (помогают с browser fingerprinting)
+        if (!requestHeaders['sec-ch-ua']) {
+          requestHeaders['sec-ch-ua'] = '"Chromium";v="136", "Not-A.Brand";v="99"';
+        }
+        if (!requestHeaders['sec-ch-ua-mobile']) {
+          requestHeaders['sec-ch-ua-mobile'] = '?0';
+        }
+        if (!requestHeaders['sec-ch-ua-platform']) {
+          requestHeaders['sec-ch-ua-platform'] = '"Windows"';
         }
       }
       
@@ -161,7 +356,7 @@ async function createOnlyFansView(sessionData) {
     
     // Сохраняем handler для возможного удаления позже
     webRequestHandlers.set(partitionName, requestInterceptor);
-    console.log('✅ webRequest interceptor установлен (x-bc, user-id, User-Agent, API headers)');
+    console.log('✅ webRequest interceptor установлен (динамические + статические headers)');
   } else {
     console.log('ℹ️ webRequest interceptor уже установлен для этой partition');
   }

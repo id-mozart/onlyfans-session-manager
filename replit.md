@@ -21,6 +21,13 @@ The interface is inspired by Material Design 3, utilizing the Inter font for cle
 - **Activity Logging**: A complete audit trail of all CRUD operations is maintained with denormalized logging, ensuring logs persist even after session deletion. Logs can be filtered and display action type, timestamp, and session details.
 - **Export Functionality**: Sessions can be exported to JSON (full data) or CSV (excluding sensitive fields) directly from the application.
 - **External API Synchronization**: Features a robust, bidirectional sync system with external CRM/APIs. It includes manual sync, auto-sync every 5 minutes, and on-mount sync. Key aspects include atomic upsert logic using PostgreSQL `onConflictDoUpdate`, `xmax`-based detection for reliable INSERT vs. UPDATE, cookie normalization, race condition protection with `isPending` guards, debouncing, and toast notifications for feedback.
+- **OFAuth API Integration**: Complete integration with OFAuth API for dynamic OnlyFans API header generation. The system automatically generates cryptographic signatures and required headers for each OnlyFans API request. Features include:
+  - **Automatic Header Injection**: webRequest interceptor detects OnlyFans API calls and injects dynamically generated headers (sign, time, app-token, x-of-rev)
+  - **Smart Caching**: Headers are cached for 10 seconds to minimize API calls while maintaining security
+  - **Session-Specific Headers**: Combines OFAuth dynamic headers with session-specific data (x-bc device fingerprint, user-id, cookies) added locally
+  - **Fallback Support**: Falls back to static headers (x-bc, app-token) if OFAuth API is unavailable
+  - **Environment Configuration**: OFAUTH_API_KEY stored securely via Replit Secrets
+  - **Rate Limits**: 30 requests/minute to OFAuth Sign API endpoint
 - **Electron Desktop App**: Provides a full desktop application experience with the following features:
   - **Session Sidebar**: Left sidebar displaying all available OnlyFans accounts with avatars, names, usernames, and emails
   - **One-Click Account Switching**: Click any account to instantly load it in a full-screen BrowserView
