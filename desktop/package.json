@@ -1,14 +1,18 @@
 {
   "name": "onlyfans-session-manager-desktop",
-  "version": "1.0.1",
+  "version": "1.0.0",
   "description": "Desktop app for managing OnlyFans account sessions",
   "main": "main.js",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/id-mozart/onlyfans-session-manager.git"
+  },
   "scripts": {
     "start": "electron .",
     "electron:start": "NODE_ENV=development electron .",
     "build": "electron-builder",
     "build:mac": "electron-builder --mac",
-    "build:mac:universal": "electron-builder --mac --universal",
+    "build:mac:universal": "electron-builder --mac --universal --publish=never",
     "build:win": "electron-builder --win",
     "build:linux": "electron-builder --linux",
     "dist": "npm run build"
@@ -28,16 +32,17 @@
     "files": [
       "main.js",
       "preload.js",
-      "index.html"
+      "index.html",
+      "app.html",
+      "icon.png"
     ],
     "win": {
-      "target": ["nsis"]
+      "target": ["nsis"],
+      "icon": "icon.png"
     },
     "mac": {
-      "target": {
-        "target": "dmg",
-        "arch": ["x64", "arm64"]
-      },
+      "target": "dmg",
+      "icon": "icon.png",
       "category": "public.app-category.productivity",
       "hardenedRuntime": false,
       "gatekeeperAssess": false,
@@ -45,6 +50,8 @@
     },
     "dmg": {
       "title": "${productName} ${version}",
+      "icon": "icon.png",
+      "iconSize": 100,
       "window": {
         "width": 600,
         "height": 400
@@ -62,10 +69,11 @@
           "path": "/Applications"
         }
       ],
-      "artifactName": "${productName}-${version}-mac.${ext}"
+      "artifactName": "${productName}-${version}-${arch}.${ext}"
     },
     "linux": {
       "target": ["AppImage", "deb"],
+      "icon": "icon.png",
       "category": "Utility"
     }
   }
