@@ -6,23 +6,15 @@
   "scripts": {
     "start": "electron .",
     "electron:start": "NODE_ENV=development electron .",
-    "build": "electron-builder --publish=never",
-    "build:mac": "electron-builder --mac --publish=never",
-    "build:mac:universal": "electron-builder --mac --universal --publish=never",
-    "build:win": "electron-builder --win --publish=never",
-    "build:linux": "electron-builder --linux --publish=never",
+    "build": "electron-builder",
+    "build:mac": "electron-builder --mac",
+    "build:mac:universal": "electron-builder --mac --universal",
+    "build:win": "electron-builder --win",
+    "build:linux": "electron-builder --linux",
     "dist": "npm run build"
   },
   "author": "Your Agency",
   "license": "MIT",
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/id-mozart/onlyfans-session-manager.git"
-  },
-  "homepage": "https://github.com/id-mozart/onlyfans-session-manager#readme",
-  "bugs": {
-    "url": "https://github.com/id-mozart/onlyfans-session-manager/issues"
-  },
   "devDependencies": {
     "electron": "^28.0.0",
     "electron-builder": "^24.9.1"
@@ -33,22 +25,53 @@
     "directories": {
       "output": "dist"
     },
-    "files": ["main.js", "preload.js"],
+    "files": [
+      "main.js",
+      "preload.js",
+      "index.html",
+      "icon.png"
+    ],
+    "win": {
+      "target": ["nsis"],
+      "icon": "icon.png"
+    },
     "mac": {
-      "target": ["dmg"],
+      "target": {
+        "target": "dmg",
+        "arch": ["x64", "arm64"]
+      },
+      "icon": "icon.png",
       "category": "public.app-category.productivity",
       "hardenedRuntime": false,
-      "gatekeeperAssess": false
+      "gatekeeperAssess": false,
+      "type": "distribution"
     },
     "dmg": {
       "title": "${productName} ${version}",
+      "icon": "icon.png",
+      "iconSize": 100,
+      "window": {
+        "width": 600,
+        "height": 400
+      },
+      "contents": [
+        {
+          "x": 150,
+          "y": 180,
+          "type": "file"
+        },
+        {
+          "x": 450,
+          "y": 180,
+          "type": "link",
+          "path": "/Applications"
+        }
+      ],
       "artifactName": "${productName}-${version}-mac.${ext}"
-    },
-    "win": {
-      "target": ["nsis"]
     },
     "linux": {
       "target": ["AppImage", "deb"],
+      "icon": "icon.png",
       "category": "Utility"
     }
   }
