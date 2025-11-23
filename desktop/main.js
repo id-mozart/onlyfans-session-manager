@@ -220,11 +220,13 @@ async function setOnlyFansCookies(sessionData) {
   let failCount = 0;
 
   for (const cookieStr of cookieStrings) {
-    const [nameValue] = cookieStr.split(';');
-    const [name, ...valueParts] = nameValue.split('=');
+    const [name, ...valueParts] = cookieStr.split('=');
     const value = valueParts.join('=');
 
-    if (!name || !value) continue;
+    if (!name || !value) {
+      console.warn('⚠️ Skipping invalid cookie:', cookieStr);
+      continue;
+    }
 
     const cookieDetails = {
       url: 'https://onlyfans.com',
@@ -237,22 +239,18 @@ async function setOnlyFansCookies(sessionData) {
       expirationDate: Math.floor(Date.now() / 1000) + (365 * 24 * 60 * 60)
     };
 
+    console.log(`🍪 Setting cookie: ${name.trim()} = ${value.trim().substring(0, 20)}...`);
+
     cookiePromises.push(
       ses.cookies.set(cookieDetails)
-        .then(cookie => {
-          if (cookie) {
-            console.log('✅ Set cookie:', name);
-            successCount++;
-          } else {
-            console.warn('⚠️ Failed to set cookie:', name);
-            failCount++;
-          }
-          return cookie;
+        .then(() => {
+          console.log('✅ Set cookie:', name.trim());
+          successCount++;
+          return true;
         })
         .catch(error => {
-          console.error('❌ Error setting cookie:', name, error);
+          console.error('❌ Error setting cookie:', name.trim(), error.message);
           failCount++;
-          // Don't throw - continue with other cookies
           return null;
         })
     );
