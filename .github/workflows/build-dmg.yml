@@ -30,11 +30,6 @@ jobs:
         working-directory: desktop
         run: npm install
 
-      - name: Update version
-        if: ${{ github.event.inputs.version != '' }}
-        working-directory: desktop
-        run: npm version ${{ github.event.inputs.version }} --no-git-tag-version
-
       - name: Build DMG (Universal)
         if: ${{ github.event.inputs.universal == 'true' }}
         working-directory: desktop
@@ -68,7 +63,7 @@ jobs:
           retention-days: 30
 
       - name: Create Release
-        if: ${{ github.event.inputs.version != '' }}
+        if: ${{ github.event.inputs.version != '' && github.event.inputs.version != '1.0.0' }}
         uses: softprops/action-gh-release@v1
         with:
           tag_name: v${{ github.event.inputs.version }}
