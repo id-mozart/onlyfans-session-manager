@@ -28,19 +28,16 @@
     "files": [
       "main.js",
       "preload.js",
-      "index.html",
-      "icon.png"
+      "index.html"
     ],
     "win": {
-      "target": ["nsis"],
-      "icon": "icon.png"
+      "target": ["nsis"]
     },
     "mac": {
       "target": {
         "target": "dmg",
         "arch": ["x64", "arm64"]
       },
-      "icon": "icon.png",
       "category": "public.app-category.productivity",
       "hardenedRuntime": false,
       "gatekeeperAssess": false,
@@ -48,8 +45,6 @@
     },
     "dmg": {
       "title": "${productName} ${version}",
-      "icon": "icon.png",
-      "iconSize": 100,
       "window": {
         "width": 600,
         "height": 400
@@ -71,7 +66,6 @@
     },
     "linux": {
       "target": ["AppImage", "deb"],
-      "icon": "icon.png",
       "category": "Utility"
     }
   }
