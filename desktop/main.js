@@ -14,7 +14,7 @@ function createMainWindow() {
     height: 900,
     minWidth: 1000,
     minHeight: 600,
-    title: 'OnlyFans Session Manager',
+    title: 'Odinn.Browser',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,

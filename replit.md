@@ -1,7 +1,7 @@
-# OnlyFans Session Manager
+# Odinn.Browser
 
 ## Overview
-This project is a professional web application designed for social media agencies to securely manage and access multiple OnlyFans accounts for their creators. Its primary purpose is to streamline workflows by providing quick access to accounts without repeated login entries, thereby reducing server load on OnlyFans by reusing existing sessions. The application aims to enhance efficiency for agency teams managing numerous creator accounts.
+Odinn.Browser is a professional desktop and web application designed for social media agencies to securely manage and access multiple OnlyFans accounts for their creators. Its primary purpose is to streamline workflows by providing quick access to accounts without repeated login entries, thereby reducing server load on OnlyFans by reusing existing sessions. The application aims to enhance efficiency for agency teams managing numerous creator accounts.
 
 ## User Preferences
 I prefer detailed explanations.

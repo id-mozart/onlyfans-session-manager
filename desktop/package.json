@@ -1,7 +1,7 @@
 {
-  "name": "onlyfans-session-manager-desktop",
+  "name": "odinn-browser",
   "version": "1.0.0",
-  "description": "Desktop app for managing OnlyFans account sessions",
+  "description": "Odinn.Browser - Professional multi-account browser for OnlyFans agencies",
   "main": "main.js",
   "repository": {
     "type": "git",
@@ -17,15 +17,15 @@
     "build:linux": "electron-builder --linux",
     "dist": "npm run build"
   },
-  "author": "Your Agency",
+  "author": "Odinn",
   "license": "MIT",
   "devDependencies": {
     "electron": "^28.0.0",
     "electron-builder": "^24.9.1"
   },
   "build": {
-    "appId": "com.agency.onlyfans-session-manager",
-    "productName": "OnlyFans Session Manager",
+    "appId": "com.odinn.browser",
+    "productName": "Odinn.Browser",
     "directories": {
       "output": "dist"
     },
@@ -34,8 +34,10 @@
       "preload.js",
       "browserViewPreload.js",
       "index.html",
-      "app.html"
+      "app.html",
+      "icon.png"
     ],
+    "icon": "icon.png",
     "win": {
       "target": ["nsis"]
     },
@@ -44,7 +46,8 @@
       "category": "public.app-category.productivity",
       "hardenedRuntime": false,
       "gatekeeperAssess": false,
-      "type": "distribution"
+      "type": "distribution",
+      "icon": "icon.png"
     },
     "dmg": {
       "title": "${productName} ${version}",
