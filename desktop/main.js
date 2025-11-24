@@ -873,16 +873,29 @@ ipcMain.on('of:get-bootstrap-data', (event) => {
     const partition = event.sender.session.partition;
     const bootstrapData = sessionBootstrapData.get(partition);
     
+    // DEBUG: Показываем все доступные partitions и что запрошено
+    console.log(`[BOOTSTRAP IPC] ==================== DEBUG ====================`);
+    console.log(`[BOOTSTRAP IPC] Requested partition: "${partition}"`);
+    console.log(`[BOOTSTRAP IPC] Available partitions in sessionBootstrapData:`);
+    for (const [key, value] of sessionBootstrapData.entries()) {
+      console.log(`   - "${key}": xBc=${value.xBc?.substring(0, 20)}..., userId=${value.userId}`);
+    }
+    console.log(`[BOOTSTRAP IPC] ===============================================`);
+    
     if (!bootstrapData) {
-      console.warn(`[BOOTSTRAP IPC] No data found for partition: ${partition}`);
+      console.warn(`[BOOTSTRAP IPC] ❌ No data found for partition: ${partition}`);
       event.returnValue = null;
       return;
     }
     
-    console.log(`[BOOTSTRAP IPC] Returning data for partition: ${partition}`);
+    console.log(`[BOOTSTRAP IPC] ✅ Returning data for partition: ${partition}`, {
+      hasXBc: !!bootstrapData.xBc,
+      hasPlatformUserId: !!bootstrapData.platformUserId,
+      hasUserId: !!bootstrapData.userId
+    });
     event.returnValue = bootstrapData;
   } catch (error) {
-    console.error('[BOOTSTRAP IPC] Error:', error);
+    console.error('[BOOTSTRAP IPC] ❌ Error:', error);
     event.returnValue = null;
   }
 });
