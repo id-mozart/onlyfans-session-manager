@@ -520,7 +520,10 @@ async function createOnlyFansView(sessionData) {
           console.log(`🔄 Converted session cookie to persistent: ${cookie.name}`);
         }
       } catch (error) {
-        console.error('❌ Ошибка конвертации session cookie:', error);
+        console.error('❌ Ошибка конвертации session cookie:', error?.message || error?.toString() || JSON.stringify(error));
+        console.error('   Cookie name:', cookie.name);
+        console.error('   Cookie domain:', cookie.domain);
+        console.error('   Cookie value length:', cookie.value?.length || 0);
       }
     }
   });
