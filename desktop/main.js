@@ -7,6 +7,7 @@ const SERVER_URL = process.env.SERVER_URL || 'https://session-of.replit.app';
 
 let mainWindow;
 let onlyFansView;
+let loginView; // BrowserView for OnlyFans login
 let currentSessionId = null; // Track which session is currently active
 
 // Map для хранения webRequest handlers по partition name (избегаем дублирования)
@@ -873,6 +874,242 @@ async function closeOnlyFansView() {
   }
 }
 
+// ========== LOGIN WINDOW ==========
+// Создать BrowserView для логина OnlyFans
+async function createLoginView() {
+  console.log('🔐 Открываем login window...');
+  
+  // Закрыть предыдущие views если открыты
+  if (onlyFansView) {
+    await closeOnlyFansView();
+  }
+  if (loginView) {
+    await closeLoginView();
+  }
+  
+  // Сообщить UI о начале процесса логина
+  mainWindow.webContents.send('login-started');
+  
+  // Создаём временную partition для логина
+  const loginPartition = 'persist:onlyfans-login';
+  const ses = session.fromPartition(loginPartition);
+  
+  // Очищаем partition перед логином
+  await ses.clearStorageData();
+  console.log('🧹 Login partition очищен');
+  
+  // Создаём BrowserView для логина
+  loginView = new BrowserView({
+    webPreferences: {
+      nodeIntegration: false,
+      contextIsolation: true,
+      webSecurity: true,
+      partition: loginPartition
+    }
+  });
+  
+  // Добавляем view в окно
+  mainWindow.addBrowserView(loginView);
+  
+  // Устанавливаем размеры (full screen)
+  const bounds = mainWindow.getContentBounds();
+  loginView.setBounds({ 
+    x: 0, 
+    y: 0, 
+    width: bounds.width, 
+    height: bounds.height 
+  });
+  
+  // Устанавливаем User-Agent (современный Chrome)
+  const defaultUA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
+  loginView.webContents.setUserAgent(defaultUA);
+  
+  // Отслеживаем навигацию для определения успешного логина
+  loginView.webContents.on('did-navigate', async (event, url) => {
+    console.log('🌐 Navigation:', url);
+    
+    // Если перешли на главную страницу или профиль - значит залогинились!
+    const isLoggedIn = url.includes('onlyfans.com/my/') || 
+                       (url === 'https://onlyfans.com/' && !url.includes('/login'));
+    
+    if (isLoggedIn) {
+      console.log('✅ Успешный логин обнаружен!');
+      await handleSuccessfulLogin();
+    }
+  });
+  
+  // Отслеживаем изменения URL без навигации (SPA)
+  loginView.webContents.on('did-navigate-in-page', async (event, url) => {
+    console.log('🌐 In-page navigation:', url);
+    
+    const isLoggedIn = url.includes('onlyfans.com/my/') || 
+                       (url === 'https://onlyfans.com/' && !url.includes('/login'));
+    
+    if (isLoggedIn) {
+      console.log('✅ Успешный логин обнаружен (in-page)!');
+      await handleSuccessfulLogin();
+    }
+  });
+  
+  // Загружаем страницу логина
+  console.log('🌐 Загружаем https://onlyfans.com/login ...');
+  await loginView.webContents.loadURL('https://onlyfans.com/login');
+  
+  // Открыть DevTools в dev режиме
+  if (process.env.NODE_ENV === 'development') {
+    loginView.webContents.openDevTools();
+  }
+}
+
+// Обработать успешный логин
+async function handleSuccessfulLogin() {
+  try {
+    console.log('🎯 Обрабатываем успешный логин...');
+    
+    if (!loginView) {
+      throw new Error('Login view not found');
+    }
+    
+    // Получаем session
+    const ses = loginView.webContents.session;
+    
+    // 1. Извлекаем cookies
+    console.log('🍪 Извлекаем cookies...');
+    const cookies = await ses.cookies.get({ url: 'https://onlyfans.com' });
+    
+    if (cookies.length === 0) {
+      throw new Error('No cookies found after login');
+    }
+    
+    console.log(`✅ Получено ${cookies.length} cookies`);
+    
+    // Формируем cookie string
+    const cookieString = cookies
+      .map(c => `${c.name}=${c.value}`)
+      .join('; ');
+    
+    // 2. Получаем важные значения из cookies
+    const authIdCookie = cookies.find(c => c.name === 'auth_id');
+    const fpCookie = cookies.find(c => c.name === 'fp');
+    
+    if (!authIdCookie) {
+      throw new Error('auth_id cookie not found - login may not be complete');
+    }
+    
+    const userId = authIdCookie.value;
+    const xBc = fpCookie?.value || '';
+    
+    console.log('🔑 User ID:', userId);
+    console.log('🔑 x-bc (fp):', xBc.substring(0, 20) + '...');
+    
+    // 3. Делаем запрос к OnlyFans API для получения user info
+    console.log('📡 Получаем user info через OnlyFans API...');
+    
+    // Генерируем OFAuth headers для /api/2/v2/users/me
+    const headers = await generateOnlyFansHeaders('/api2/v2/users/me', userId);
+    
+    const requestHeaders = {
+      'Cookie': cookieString,
+      'User-Agent': loginView.webContents.getUserAgent(),
+      'Accept': 'application/json',
+      'Referer': 'https://onlyfans.com/',
+      'x-bc': xBc
+    };
+    
+    // Добавляем OFAuth headers если доступны
+    if (headers) {
+      if (headers.sign) requestHeaders['sign'] = headers.sign;
+      if (headers.time) requestHeaders['time'] = String(headers.time);
+      if (headers['app-token']) requestHeaders['app-token'] = headers['app-token'];
+      if (headers['x-of-rev']) requestHeaders['x-of-rev'] = headers['x-of-rev'];
+    } else {
+      // Fallback на статический app-token
+      requestHeaders['app-token'] = '33d57ade8c02dbc5a333db99ff9ae26a';
+    }
+    
+    const userInfoResponse = await fetch('https://onlyfans.com/api2/v2/users/me', {
+      headers: requestHeaders
+    });
+    
+    if (!userInfoResponse.ok) {
+      throw new Error(`Failed to fetch user info: ${userInfoResponse.status}`);
+    }
+    
+    const userInfo = await userInfoResponse.json();
+    console.log('✅ User info получен:', userInfo.name);
+    
+    // 4. Подготавливаем данные сессии
+    const sessionData = {
+      platformUserId: userId,
+      xBc: xBc,
+      cookie: cookieString,
+      userId: userId,
+      userAgent: loginView.webContents.getUserAgent(),
+      email: userInfo.email || '',
+      name: userInfo.name || userInfo.username || 'Unknown',
+      username: userInfo.username || ''
+    };
+    
+    // 5. Сохраняем сессию через API сервера
+    console.log('💾 Сохраняем сессию на сервере...');
+    
+    const saveResponse = await fetch(`${SERVER_URL}/api/sessions/from-cookies`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(sessionData)
+    });
+    
+    if (!saveResponse.ok) {
+      throw new Error(`Failed to save session: ${saveResponse.status}`);
+    }
+    
+    const savedSession = await saveResponse.json();
+    console.log('✅ Сессия сохранена:', savedSession.id);
+    
+    // 6. Закрываем login view
+    await closeLoginView();
+    
+    // 7. Уведомляем UI об успешном добавлении аккаунта
+    mainWindow.webContents.send('login-success', savedSession);
+    
+    console.log('🎉 Аккаунт успешно добавлен!');
+    
+  } catch (error) {
+    console.error('❌ Ошибка обработки логина:', error);
+    mainWindow.webContents.send('login-error', error.message);
+    await closeLoginView();
+  }
+}
+
+// Закрыть login view
+async function closeLoginView() {
+  if (loginView) {
+    try {
+      console.log('🔒 Закрываем login view...');
+      
+      // Remove from window
+      mainWindow.removeBrowserView(loginView);
+      
+      // Clear session data
+      const ses = loginView.webContents.session;
+      await ses.clearStorageData();
+      
+      // Destroy
+      loginView.webContents.destroy();
+      loginView = null;
+      
+      console.log('✅ Login view закрыт');
+      mainWindow.webContents.send('login-closed');
+    } catch (error) {
+      console.error('⚠️ Error closing login view:', error);
+      loginView = null;
+      mainWindow.webContents.send('login-closed');
+    }
+  }
+}
+
 // Установить cookies для OnlyFans
 async function setOnlyFansCookies(sessionData) {
   const partitionName = `persist:onlyfans-${sessionData.id}`;
@@ -1068,6 +1305,27 @@ ipcMain.handle('close-onlyfans', async () => {
     return { success: true };
   } catch (error) {
     console.error('❌ Ошибка закрытия OnlyFans:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('open-login-window', async () => {
+  try {
+    console.log('🔐 IPC: Открываем login window');
+    await createLoginView();
+    return { success: true };
+  } catch (error) {
+    console.error('❌ Ошибка открытия login window:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('close-login-window', async () => {
+  try {
+    await closeLoginView();
+    return { success: true };
+  } catch (error) {
+    console.error('❌ Ошибка закрытия login window:', error);
     return { success: false, error: error.message };
   }
 });
