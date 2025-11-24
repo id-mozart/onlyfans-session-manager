@@ -265,17 +265,32 @@ async function createOnlyFansView(sessionData) {
   // Создать новый BrowserView с УНИКАЛЬНОЙ partition для каждой сессии
   const partitionName = `persist:onlyfans-${sessionData.id}`;
   
-  // ========== УСТАРЕВШАЯ СИСТЕМА: Bootstrap preload + IPC УДАЛЕНА ==========
-  // ПРОБЛЕМА: session.setPreloads() + IPC имел race condition
-  // НОВОЕ РЕШЕНИЕ: Прямая инжекция через executeJavaScript в did-finish-load
-  // (см. строки ниже где вызывается executeJavaScript)
+  // ========== ПРАВИЛЬНАЯ СИСТЕМА: Bootstrap через глобальную переменную ==========
+  // Передаем sessionData в глобальную переменную process ДО создания BrowserView
+  // Preload script прочитает эти данные и установит localStorage
   
   const ses = session.fromPartition(partitionName);
+  
+  // Устанавливаем preload script который установит localStorage ДО загрузки OnlyFans
+  const bootstrapPreloadPath = path.join(__dirname, 'onlyfans-bootstrap-preload.js');
+  ses.setPreloads([bootstrapPreloadPath]);
+  console.log(`[BOOTSTRAP] Registered preload: ${bootstrapPreloadPath}`);
+  
+  // Сохраняем bootstrap data в глобальную переменную которую preload сможет прочитать
+  // ВАЖНО: Это должно быть ПЕРЕД созданием BrowserView!
+  global.onlyFansBootstrapData = {
+    partitionName: partitionName,
+    xBc: sessionData.xBc,
+    platformUserId: sessionData.platformUserId,
+    userId: sessionData.userId
+  };
+  console.log(`[BOOTSTRAP] Stored bootstrap data in global for partition: ${partitionName}`);
   
   onlyFansView = new BrowserView({
     webPreferences: {
       nodeIntegration: false,
-      contextIsolation: true,
+      contextIsolation: false, // DISABLE для доступа к remote
+      enableRemoteModule: true, // ENABLE для preload script
       webSecurity: true,
       partition: partitionName,
       preload: path.join(__dirname, 'browserViewPreload.js') // overlay preload
@@ -518,55 +533,11 @@ async function createOnlyFansView(sessionData) {
     
     // Создаём promise для отслеживания загрузки с таймаутом
     let loadFinished = false;
-    let localStorageInjected = false;
     
-    // ========== КРИТИЧНО! Инжектируем localStorage ДО выполнения скриптов ==========
-    // did-start-navigation выполняется ПЕРЕД загрузкой страницы и выполнением scripts
-    // Это ЕДИНСТВЕННЫЙ способ гарантировать что localStorage установлен ДО первого API запроса
-    onlyFansView.webContents.on('did-start-navigation', async (event, url) => {
-      // Инжектируем только для OnlyFans URL и только один раз
-      if (url.includes('onlyfans.com') && !localStorageInjected) {
-        localStorageInjected = true;
-        console.log('💉 [did-start-navigation] Инжектируем localStorage ДО загрузки скриптов...');
-        
-        try {
-          // executeJavaScript в did-start-navigation выполняется в новом документе
-          // ПЕРЕД загрузкой каких-либо скриптов OnlyFans
-          await onlyFansView.webContents.executeJavaScript(`
-            console.log('[EARLY INJECT] Setting localStorage BEFORE OnlyFans scripts load...');
-            
-            // Устанавливаем x-bc fingerprint
-            localStorage.setItem('x-bc', ${JSON.stringify(sessionData.xBc)});
-            console.log('[EARLY INJECT] ✅ x-bc set:', ${JSON.stringify(sessionData.xBc)}.substring(0, 20) + '...');
-            
-            // Устанавливаем platformUserId
-            localStorage.setItem('platformUserId', ${JSON.stringify(sessionData.platformUserId)});
-            console.log('[EARLY INJECT] ✅ platformUserId set:', ${JSON.stringify(sessionData.platformUserId)});
-            
-            // Устанавливаем userId
-            localStorage.setItem('userId', ${JSON.stringify(sessionData.userId)});
-            console.log('[EARLY INJECT] ✅ userId set:', ${JSON.stringify(sessionData.userId)});
-            
-            // Verification
-            const xBc = localStorage.getItem('x-bc');
-            const platformUserId = localStorage.getItem('platformUserId');
-            const userId = localStorage.getItem('userId');
-            
-            console.log('[EARLY INJECT] ✅ Verification:', {
-              xBc: xBc ? xBc.substring(0, 20) + '...' : 'NOT SET',
-              platformUserId: platformUserId || 'NOT SET',
-              userId: userId || 'NOT SET'
-            });
-            
-            true; // Return value
-          `);
-          
-          console.log('✅ localStorage инжектирован ДО загрузки OnlyFans scripts!');
-        } catch (error) {
-          console.error('❌ Ошибка ранней инжекции localStorage:', error);
-        }
-      }
-    });
+    // ========== localStorage устанавливается через PRELOAD SCRIPT! ==========
+    // Session preload (onlyfans-bootstrap-preload.js) выполняется ПЕРЕД OnlyFans scripts
+    // Preload читает данные из global.onlyFansBootstrapData и устанавливает localStorage
+    // Это гарантирует что x-bc, platformUserId, userId доступны ДО первого API запроса
     
     // Обработчики событий загрузки (устанавливаем ДО loadURL)
     onlyFansView.webContents.on('did-finish-load', async () => {
