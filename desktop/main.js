@@ -7,6 +7,7 @@ const SERVER_URL = process.env.SERVER_URL || 'https://session-of.replit.app';
 
 let mainWindow;
 let onlyFansView;
+let currentSessionId = null; // Track which session is currently active
 
 // Map для хранения webRequest handlers по partition name (избегаем дублирования)
 const webRequestHandlers = new Map();
@@ -15,6 +16,96 @@ const headerCacheTimestamps = new Map(); // Track last header generation time pe
 // Map для хранения bootstrap data (xBc, platformUserId, userId) per partition
 // Используется preload script'ом для установки localStorage ДО первого запроса
 const sessionBootstrapData = new Map();
+
+// ========== AUTOMATIC LOG SENDING TO SERVER ==========
+// Все console.log/warn/error автоматически отправляются на сервер для отладки
+
+const logQueue = [];
+const LOG_BATCH_SIZE = 10;
+const LOG_BATCH_INTERVAL = 5000; // 5 секунд
+
+// Перехватываем оригинальные console методы
+const originalLog = console.log;
+const originalWarn = console.warn;
+const originalError = console.error;
+const originalInfo = console.info;
+
+// Функция отправки логов на сервер
+async function sendLogsToServer(logs) {
+  try {
+    await fetch(`${SERVER_URL}/api/desktop-logs/batch`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ logs })
+    });
+  } catch (error) {
+    // Не логируем ошибки отправки логов, чтобы не создать цикл
+  }
+}
+
+// Flush логи на сервер
+function flushLogs() {
+  if (logQueue.length > 0) {
+    const logsToSend = logQueue.splice(0, logQueue.length);
+    sendLogsToServer(logsToSend);
+  }
+}
+
+// Периодическая отправка логов
+setInterval(flushLogs, LOG_BATCH_INTERVAL);
+
+// Отправляем логи при выходе
+app.on('before-quit', flushLogs);
+
+// Хелпер для добавления лога в очередь
+function queueLog(level, args) {
+  const message = args.map(arg => {
+    if (typeof arg === 'object') {
+      try {
+        return JSON.stringify(arg);
+      } catch {
+        return String(arg);
+      }
+    }
+    return String(arg);
+  }).join(' ');
+
+  logQueue.push({
+    level,
+    message: message.substring(0, 5000), // Limit message size
+    sessionId: currentSessionId,
+    context: {
+      timestamp: new Date().toISOString(),
+      platform: process.platform
+    }
+  });
+
+  // Если очередь заполнена - отправляем немедленно
+  if (logQueue.length >= LOG_BATCH_SIZE) {
+    flushLogs();
+  }
+}
+
+// Переопределяем console методы для автоматической отправки
+console.log = function(...args) {
+  originalLog.apply(console, args);
+  queueLog('log', args);
+};
+
+console.warn = function(...args) {
+  originalWarn.apply(console, args);
+  queueLog('warn', args);
+};
+
+console.error = function(...args) {
+  originalError.apply(console, args);
+  queueLog('error', args);
+};
+
+console.info = function(...args) {
+  originalInfo.apply(console, args);
+  queueLog('info', args);
+};
 
 // ========== OFAuth Headers Generation via Server ==========
 // Desktop app обращается к нашему серверу для генерации headers
@@ -157,6 +248,9 @@ async function createOnlyFansView(sessionData) {
   if (!sessionData || !sessionData.id || !sessionData.cookie) {
     throw new Error('Invalid session data');
   }
+
+  // Track active session for logging
+  currentSessionId = sessionData.id;
 
   console.log('🚀 Начинаем загрузку OnlyFans для:', sessionData.name);
 
@@ -424,62 +518,58 @@ async function createOnlyFansView(sessionData) {
     
     // Создаём promise для отслеживания загрузки с таймаутом
     let loadFinished = false;
+    let localStorageInjected = false;
+    
+    // ========== КРИТИЧНО! Инжектируем localStorage ДО выполнения скриптов ==========
+    // did-start-navigation выполняется ПЕРЕД загрузкой страницы и выполнением scripts
+    // Это ЕДИНСТВЕННЫЙ способ гарантировать что localStorage установлен ДО первого API запроса
+    onlyFansView.webContents.on('did-start-navigation', async (event, url) => {
+      // Инжектируем только для OnlyFans URL и только один раз
+      if (url.includes('onlyfans.com') && !localStorageInjected) {
+        localStorageInjected = true;
+        console.log('💉 [did-start-navigation] Инжектируем localStorage ДО загрузки скриптов...');
+        
+        try {
+          // executeJavaScript в did-start-navigation выполняется в новом документе
+          // ПЕРЕД загрузкой каких-либо скриптов OnlyFans
+          await onlyFansView.webContents.executeJavaScript(`
+            console.log('[EARLY INJECT] Setting localStorage BEFORE OnlyFans scripts load...');
+            
+            // Устанавливаем x-bc fingerprint
+            localStorage.setItem('x-bc', ${JSON.stringify(sessionData.xBc)});
+            console.log('[EARLY INJECT] ✅ x-bc set:', ${JSON.stringify(sessionData.xBc)}.substring(0, 20) + '...');
+            
+            // Устанавливаем platformUserId
+            localStorage.setItem('platformUserId', ${JSON.stringify(sessionData.platformUserId)});
+            console.log('[EARLY INJECT] ✅ platformUserId set:', ${JSON.stringify(sessionData.platformUserId)});
+            
+            // Устанавливаем userId
+            localStorage.setItem('userId', ${JSON.stringify(sessionData.userId)});
+            console.log('[EARLY INJECT] ✅ userId set:', ${JSON.stringify(sessionData.userId)});
+            
+            // Verification
+            const xBc = localStorage.getItem('x-bc');
+            const platformUserId = localStorage.getItem('platformUserId');
+            const userId = localStorage.getItem('userId');
+            
+            console.log('[EARLY INJECT] ✅ Verification:', {
+              xBc: xBc ? xBc.substring(0, 20) + '...' : 'NOT SET',
+              platformUserId: platformUserId || 'NOT SET',
+              userId: userId || 'NOT SET'
+            });
+            
+            true; // Return value
+          `);
+          
+          console.log('✅ localStorage инжектирован ДО загрузки OnlyFans scripts!');
+        } catch (error) {
+          console.error('❌ Ошибка ранней инжекции localStorage:', error);
+        }
+      }
+    });
     
     // Обработчики событий загрузки (устанавливаем ДО loadURL)
     onlyFansView.webContents.on('did-finish-load', async () => {
-      // ========== КРИТИЧНО! Инжектируем localStorage НАПРЯМУЮ ==========
-      // ПРОБЛЕМА: session.setPreloads() + IPC имеет race condition - preload выполняется
-      // но sessionBootstrapData может быть не готов или partition name не совпадает
-      // РЕШЕНИЕ: Используем executeJavaScript для СИНХРОННОЙ инжекции localStorage
-      console.log('💉 Инжектируем localStorage через executeJavaScript...');
-      
-      try {
-        await onlyFansView.webContents.executeJavaScript(`
-          console.log('[DIRECT INJECT] Setting localStorage...');
-          
-          // Устанавливаем x-bc fingerprint
-          if (${JSON.stringify(sessionData.xBc)}) {
-            localStorage.setItem('x-bc', ${JSON.stringify(sessionData.xBc)});
-            console.log('[DIRECT INJECT] ✅ x-bc set:', ${JSON.stringify(sessionData.xBc)}.substring(0, 20) + '...');
-          }
-          
-          // Устанавливаем platformUserId
-          if (${JSON.stringify(sessionData.platformUserId)}) {
-            localStorage.setItem('platformUserId', ${JSON.stringify(sessionData.platformUserId)});
-            console.log('[DIRECT INJECT] ✅ platformUserId set:', ${JSON.stringify(sessionData.platformUserId)});
-          }
-          
-          // Устанавливаем userId
-          if (${JSON.stringify(sessionData.userId)}) {
-            localStorage.setItem('userId', ${JSON.stringify(sessionData.userId)});
-            console.log('[DIRECT INJECT] ✅ userId set:', ${JSON.stringify(sessionData.userId)});
-          }
-          
-          // Verification
-          const xBc = localStorage.getItem('x-bc');
-          const platformUserId = localStorage.getItem('platformUserId');
-          const userId = localStorage.getItem('userId');
-          
-          console.log('[DIRECT INJECT] ✅ Verification:', {
-            xBc: xBc ? xBc.substring(0, 20) + '...' : 'NOT SET',
-            platformUserId: platformUserId || 'NOT SET',
-            userId: userId || 'NOT SET'
-          });
-          
-          // Возвращаем результат для проверки
-          return {
-            success: true,
-            xBc: !!xBc,
-            platformUserId: !!platformUserId,
-            userId: !!userId
-          };
-        `);
-        
-        console.log('✅ localStorage инжектирован успешно');
-      } catch (error) {
-        console.error('❌ Ошибка инжекции localStorage:', error);
-      }
-      
       // При первой загрузке - показываем BrowserView
       if (!loadFinished) {
         loadFinished = true;
