@@ -171,23 +171,12 @@ async function createOnlyFansView(sessionData) {
   // Создать новый BrowserView с УНИКАЛЬНОЙ partition для каждой сессии
   const partitionName = `persist:onlyfans-${sessionData.id}`;
   
-  // ========== КРИТИЧНО! Сохраняем bootstrap data ДО создания BrowserView ==========
-  // Preload script будет читать эти данные через синхронный IPC
-  sessionBootstrapData.set(partitionName, {
-    xBc: sessionData.xBc,
-    platformUserId: sessionData.platformUserId,
-    userId: sessionData.userId
-  });
-  console.log(`[BOOTSTRAP] Сохранили data для partition: ${partitionName}`);
+  // ========== УСТАРЕВШАЯ СИСТЕМА: Bootstrap preload + IPC УДАЛЕНА ==========
+  // ПРОБЛЕМА: session.setPreloads() + IPC имел race condition
+  // НОВОЕ РЕШЕНИЕ: Прямая инжекция через executeJavaScript в did-finish-load
+  // (см. строки ниже где вызывается executeJavaScript)
   
-  // ========== Регистрируем preload script для этой session ==========
   const ses = session.fromPartition(partitionName);
-  const bootstrapPreloadPath = path.join(__dirname, 'onlyfans-bootstrap-preload.js');
-  
-  // Устанавливаем preload scripts которые будут выполняться ДО загрузки страницы
-  // ВАЖНО: Это должно быть сделано ДО создания BrowserView!
-  ses.setPreloads([bootstrapPreloadPath]);
-  console.log(`[BOOTSTRAP] Зарегистрировали preload: ${bootstrapPreloadPath}`);
   
   onlyFansView = new BrowserView({
     webPreferences: {
@@ -438,8 +427,58 @@ async function createOnlyFansView(sessionData) {
     
     // Обработчики событий загрузки (устанавливаем ДО loadURL)
     onlyFansView.webContents.on('did-finish-load', async () => {
-      // ========== localStorage устанавливается через preload bootstrap system! ==========
-      // Preload script выполнился ДО загрузки OnlyFans, поэтому localStorage уже установлен
+      // ========== КРИТИЧНО! Инжектируем localStorage НАПРЯМУЮ ==========
+      // ПРОБЛЕМА: session.setPreloads() + IPC имеет race condition - preload выполняется
+      // но sessionBootstrapData может быть не готов или partition name не совпадает
+      // РЕШЕНИЕ: Используем executeJavaScript для СИНХРОННОЙ инжекции localStorage
+      console.log('💉 Инжектируем localStorage через executeJavaScript...');
+      
+      try {
+        await onlyFansView.webContents.executeJavaScript(`
+          console.log('[DIRECT INJECT] Setting localStorage...');
+          
+          // Устанавливаем x-bc fingerprint
+          if (${JSON.stringify(sessionData.xBc)}) {
+            localStorage.setItem('x-bc', ${JSON.stringify(sessionData.xBc)});
+            console.log('[DIRECT INJECT] ✅ x-bc set:', ${JSON.stringify(sessionData.xBc)}.substring(0, 20) + '...');
+          }
+          
+          // Устанавливаем platformUserId
+          if (${JSON.stringify(sessionData.platformUserId)}) {
+            localStorage.setItem('platformUserId', ${JSON.stringify(sessionData.platformUserId)});
+            console.log('[DIRECT INJECT] ✅ platformUserId set:', ${JSON.stringify(sessionData.platformUserId)});
+          }
+          
+          // Устанавливаем userId
+          if (${JSON.stringify(sessionData.userId)}) {
+            localStorage.setItem('userId', ${JSON.stringify(sessionData.userId)});
+            console.log('[DIRECT INJECT] ✅ userId set:', ${JSON.stringify(sessionData.userId)});
+          }
+          
+          // Verification
+          const xBc = localStorage.getItem('x-bc');
+          const platformUserId = localStorage.getItem('platformUserId');
+          const userId = localStorage.getItem('userId');
+          
+          console.log('[DIRECT INJECT] ✅ Verification:', {
+            xBc: xBc ? xBc.substring(0, 20) + '...' : 'NOT SET',
+            platformUserId: platformUserId || 'NOT SET',
+            userId: userId || 'NOT SET'
+          });
+          
+          // Возвращаем результат для проверки
+          return {
+            success: true,
+            xBc: !!xBc,
+            platformUserId: !!platformUserId,
+            userId: !!userId
+          };
+        `);
+        
+        console.log('✅ localStorage инжектирован успешно');
+      } catch (error) {
+        console.error('❌ Ошибка инжекции localStorage:', error);
+      }
       
       // При первой загрузке - показываем BrowserView
       if (!loadFinished) {
