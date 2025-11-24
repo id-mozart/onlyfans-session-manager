@@ -424,16 +424,18 @@ async function createOnlyFansView(sessionData) {
         }
       }
       
-      // ========== DEBUG: Логируем итоговые headers для API запросов ==========
-      if (isApiRequest) {
-        console.log('📤 [DEBUG] Отправка API запроса к OnlyFans:');
-        console.log('   URL:', details.url);
-        console.log('   x-bc:', requestHeaders['x-bc']);
-        console.log('   app-token:', requestHeaders['app-token']);
-        console.log('   sign:', requestHeaders['sign']);
-        console.log('   time:', requestHeaders['time']);
-        console.log('   Origin:', requestHeaders['Origin'] || '(не установлен - правильно!)');
-        console.log('   Referer:', requestHeaders['Referer']);
+      // ========== DEBUG: Логируем API запросы (БЕЗ sensitive headers!) ==========
+      if (isApiRequest && process.env.NODE_ENV === 'development') {
+        console.log('📤 [DEBUG] OnlyFans API request:', details.url);
+        // NOTE: NOT logging x-bc, sign, time, app-token - these are sensitive credentials!
+        console.log('   Headers present:', {
+          'x-bc': requestHeaders['x-bc'] ? 'YES' : 'NO',
+          'sign': requestHeaders['sign'] ? 'YES' : 'NO',
+          'time': requestHeaders['time'] ? 'YES' : 'NO',
+          'app-token': requestHeaders['app-token'] ? 'YES' : 'NO',
+          'Origin': requestHeaders['Origin'] || 'NOT SET',
+          'Referer': requestHeaders['Referer'] ? 'YES' : 'NO'
+        });
       }
       
       // Передаём модифицированные headers обратно
