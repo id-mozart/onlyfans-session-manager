@@ -1,81 +1,83 @@
 /**
- * OnlyFans Bootstrap Preload Script
+ * OnlyFans Bootstrap Preload Script (SAFE VERSION)
  * 
- * This preload script runs BEFORE any OnlyFans page scripts execute.
- * It sets localStorage (x-bc, platformUserId, userId) synchronously so that
- * the very first API request includes the correct fingerprint.
+ * Receives session data via additionalArguments in webPreferences
+ * Sets localStorage BEFORE OnlyFans page scripts execute
  * 
- * CRITICAL TIMING:
- * - Preload executes AFTER document created but BEFORE page scripts load
- * - localStorage set here is available to OnlyFans scripts immediately
- * - No race condition because this runs in same event loop before first network request
+ * SECURITY: 
+ * - Uses contextIsolation: true (safe!)
+ * - No remote module (safe!)
+ * - No global variables (safe!)
+ * - Each BrowserView gets its OWN arguments (no race conditions!)
  */
 
-const { remote } = require('electron');
+console.log('[BOOTSTRAP PRELOAD] 🚀 Starting...');
+console.log('[BOOTSTRAP PRELOAD] process.argv:', process.argv);
 
-console.log('[BOOTSTRAP] 🚀 OnlyFans preload script executing...');
+// Parse arguments from additionalArguments
+// Format: ['electron', 'path/to/preload.js', '--xBc=...', '--platformUserId=...', '--userId=...']
+const args = process.argv.slice(2); // Skip electron executable and preload path
 
-try {
-  // Read bootstrap data from global variable set by main process
-  // This is safer than IPC because it's synchronous and partition-specific
-  const bootstrapData = remote.getGlobal('onlyFansBootstrapData');
-  
-  if (!bootstrapData) {
-    console.error('[BOOTSTRAP] ❌ No bootstrap data in global - localStorage NOT set!');
-    console.error('[BOOTSTRAP] This will cause authentication failure!');
-    return;
+// Extract values
+let xBc = '';
+let platformUserId = '';
+let userId = '';
+
+for (const arg of args) {
+  if (arg.startsWith('--xBc=')) {
+    xBc = arg.substring('--xBc='.length);
+  } else if (arg.startsWith('--platformUserId=')) {
+    platformUserId = arg.substring('--platformUserId='.length);
+  } else if (arg.startsWith('--userId=')) {
+    userId = arg.substring('--userId='.length);
   }
-  
-  console.log('[BOOTSTRAP] ✅ Found bootstrap data:', {
-    partitionName: bootstrapData.partitionName,
-    hasXBc: !!bootstrapData.xBc,
-    hasPlatformUserId: !!bootstrapData.platformUserId,
-    hasUserId: !!bootstrapData.userId
-  });
-  
-  // Set localStorage BEFORE OnlyFans scripts execute
-  if (bootstrapData.xBc) {
-    localStorage.setItem('x-bc', bootstrapData.xBc);
-    console.log('[BOOTSTRAP] ✅ x-bc set:', bootstrapData.xBc.substring(0, 20) + '...');
-  } else {
-    console.error('[BOOTSTRAP] ❌ x-bc missing in bootstrap data!');
-  }
-  
-  if (bootstrapData.platformUserId) {
-    localStorage.setItem('platformUserId', bootstrapData.platformUserId);
-    console.log('[BOOTSTRAP] ✅ platformUserId set:', bootstrapData.platformUserId);
-  } else {
-    console.error('[BOOTSTRAP] ❌ platformUserId missing in bootstrap data!');
-  }
-  
-  if (bootstrapData.userId) {
-    localStorage.setItem('userId', bootstrapData.userId);
-    console.log('[BOOTSTRAP] ✅ userId set:', bootstrapData.userId);
-  } else {
-    console.error('[BOOTSTRAP] ❌ userId missing in bootstrap data!');
-  }
-  
-  console.log('[BOOTSTRAP] 🎉 localStorage seeded successfully BEFORE OnlyFans scripts!');
-  
-  // Verify localStorage was set
-  const verifyXBc = localStorage.getItem('x-bc');
-  const verifyPlatformUserId = localStorage.getItem('platformUserId');
-  const verifyUserId = localStorage.getItem('userId');
-  
-  console.log('[BOOTSTRAP] 🔍 Final verification:', {
-    xBc: verifyXBc ? verifyXBc.substring(0, 20) + '... ✅' : '❌ NOT SET',
-    platformUserId: verifyPlatformUserId ? verifyPlatformUserId + ' ✅' : '❌ NOT SET',
-    userId: verifyUserId ? verifyUserId + ' ✅' : '❌ NOT SET'
-  });
-  
-  if (!verifyXBc || !verifyPlatformUserId || !verifyUserId) {
-    console.error('[BOOTSTRAP] ❌ CRITICAL: Some localStorage values NOT set!');
-    console.error('[BOOTSTRAP] Authentication will FAIL!');
-  } else {
-    console.log('[BOOTSTRAP] ✅ ✅ ✅ ALL CHECKS PASSED - Ready for authentication!');
-  }
-  
-} catch (error) {
-  console.error('[BOOTSTRAP] ❌ FATAL ERROR seeding localStorage:', error);
-  console.error('[BOOTSTRAP] Stack trace:', error.stack);
 }
+
+console.log('[BOOTSTRAP PRELOAD] Parsed arguments:');
+console.log('[BOOTSTRAP PRELOAD] xBc:', xBc ? xBc.substring(0, 20) + '...' : 'MISSING');
+console.log('[BOOTSTRAP PRELOAD] platformUserId:', platformUserId || 'MISSING');
+console.log('[BOOTSTRAP PRELOAD] userId:', userId || 'MISSING');
+
+// Validate required data
+if (!xBc || !platformUserId || !userId) {
+  console.error('[BOOTSTRAP PRELOAD] ❌ CRITICAL ERROR: Missing required arguments!');
+  console.error('[BOOTSTRAP PRELOAD] This will cause authentication FAILURE!');
+  console.error('[BOOTSTRAP PRELOAD] xBc:', xBc ? 'OK' : 'MISSING');
+  console.error('[BOOTSTRAP PRELOAD] platformUserId:', platformUserId ? 'OK' : 'MISSING');
+  console.error('[BOOTSTRAP PRELOAD] userId:', userId ? 'OK' : 'MISSING');
+} else {
+  try {
+    // Set localStorage synchronously BEFORE OnlyFans page scripts execute
+    console.log('[BOOTSTRAP PRELOAD] Setting localStorage...');
+    
+    localStorage.setItem('x-bc', xBc);
+    localStorage.setItem('platformUserId', platformUserId);
+    localStorage.setItem('userId', userId);
+    
+    console.log('[BOOTSTRAP PRELOAD] ✅ x-bc set:', xBc.substring(0, 20) + '...');
+    console.log('[BOOTSTRAP PRELOAD] ✅ platformUserId set:', platformUserId);
+    console.log('[BOOTSTRAP PRELOAD] ✅ userId set:', userId);
+    
+    // Verify localStorage was set correctly
+    const verifyXBc = localStorage.getItem('x-bc');
+    const verifyPlatformUserId = localStorage.getItem('platformUserId');
+    const verifyUserId = localStorage.getItem('userId');
+    
+    if (verifyXBc && verifyPlatformUserId && verifyUserId) {
+      console.log('[BOOTSTRAP PRELOAD] ✅ ✅ ✅ ALL VERIFIED - Ready for authentication!');
+      console.log('[BOOTSTRAP PRELOAD] x-bc matches:', verifyXBc === xBc ? '✅' : '❌');
+      console.log('[BOOTSTRAP PRELOAD] platformUserId matches:', verifyPlatformUserId === platformUserId ? '✅' : '❌');
+      console.log('[BOOTSTRAP PRELOAD] userId matches:', verifyUserId === userId ? '✅' : '❌');
+    } else {
+      console.error('[BOOTSTRAP PRELOAD] ❌ VERIFICATION FAILED!');
+      console.error('[BOOTSTRAP PRELOAD] x-bc:', verifyXBc ? 'OK' : 'MISSING');
+      console.error('[BOOTSTRAP PRELOAD] platformUserId:', verifyPlatformUserId ? 'OK' : 'MISSING');
+      console.error('[BOOTSTRAP PRELOAD] userId:', verifyUserId ? 'OK' : 'MISSING');
+    }
+  } catch (error) {
+    console.error('[BOOTSTRAP PRELOAD] ❌ FATAL ERROR setting localStorage:', error);
+    console.error('[BOOTSTRAP PRELOAD] Stack trace:', error.stack);
+  }
+}
+
+console.log('[BOOTSTRAP PRELOAD] 🏁 Bootstrap complete!');

@@ -265,9 +265,10 @@ async function createOnlyFansView(sessionData) {
   // Создать новый BrowserView с УНИКАЛЬНОЙ partition для каждой сессии
   const partitionName = `persist:onlyfans-${sessionData.id}`;
   
-  // ========== ПРАВИЛЬНАЯ СИСТЕМА: Bootstrap через глобальную переменную ==========
-  // Передаем sessionData в глобальную переменную process ДО создания BrowserView
-  // Preload script прочитает эти данные и установит localStorage
+  // ========== ПРАВИЛЬНАЯ СИСТЕМА: Bootstrap через additionalArguments ==========
+  // Передаем sessionData через additionalArguments в webPreferences
+  // Preload script прочитает данные из process.argv и установит localStorage
+  // ЭТО БЕЗОПАСНО: Нет race conditions, contextIsolation остается включенным!
   
   const ses = session.fromPartition(partitionName);
   
@@ -276,24 +277,26 @@ async function createOnlyFansView(sessionData) {
   ses.setPreloads([bootstrapPreloadPath]);
   console.log(`[BOOTSTRAP] Registered preload: ${bootstrapPreloadPath}`);
   
-  // Сохраняем bootstrap data в глобальную переменную которую preload сможет прочитать
-  // ВАЖНО: Это должно быть ПЕРЕД созданием BrowserView!
-  global.onlyFansBootstrapData = {
-    partitionName: partitionName,
-    xBc: sessionData.xBc,
-    platformUserId: sessionData.platformUserId,
-    userId: sessionData.userId
-  };
-  console.log(`[BOOTSTRAP] Stored bootstrap data in global for partition: ${partitionName}`);
+  // Подготавливаем данные для передачи через additionalArguments
+  console.log(`[BOOTSTRAP] Preparing additionalArguments for partition: ${partitionName}`);
+  console.log(`[BOOTSTRAP] xBc: ${sessionData.xBc ? sessionData.xBc.substring(0, 20) + '...' : 'MISSING'}`);
+  console.log(`[BOOTSTRAP] platformUserId: ${sessionData.platformUserId || 'MISSING'}`);
+  console.log(`[BOOTSTRAP] userId: ${sessionData.userId || 'MISSING'}`);
   
   onlyFansView = new BrowserView({
     webPreferences: {
       nodeIntegration: false,
-      contextIsolation: false, // DISABLE для доступа к remote
-      enableRemoteModule: true, // ENABLE для preload script
+      contextIsolation: true, // ✅ БЕЗОПАСНО - оставляем включенным!
       webSecurity: true,
       partition: partitionName,
-      preload: path.join(__dirname, 'browserViewPreload.js') // overlay preload
+      preload: path.join(__dirname, 'browserViewPreload.js'), // overlay preload
+      // ========== ПЕРЕДАЕМ ДАННЫЕ ЧЕРЕЗ additionalArguments ==========
+      // Preload script получит эти аргументы через process.argv
+      additionalArguments: [
+        `--xBc=${sessionData.xBc || ''}`,
+        `--platformUserId=${sessionData.platformUserId || ''}`,
+        `--userId=${sessionData.userId || ''}`
+      ]
     }
   });
 
