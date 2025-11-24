@@ -279,11 +279,14 @@ async function createOnlyFansView(sessionData) {
   
   // Подготавливаем данные для передачи через additionalArguments
   console.log(`[BOOTSTRAP] Preparing additionalArguments for partition: ${partitionName}`);
-  // NOTE: Not logging actual credential values for security
-  console.log(`[BOOTSTRAP] Data availability:`, {
-    xBc: sessionData.xBc ? 'OK' : 'MISSING',
-    platformUserId: sessionData.platformUserId ? 'OK' : 'MISSING',
-    userId: sessionData.userId ? 'OK' : 'MISSING'
+  // ⚠️ FULL DEBUG MODE - логируем ВСЕ значения!
+  console.log(`[BOOTSTRAP] FULL SESSION DATA:`, {
+    xBc: sessionData.xBc,
+    platformUserId: sessionData.platformUserId,
+    userId: sessionData.userId,
+    userAgent: sessionData.userAgent,
+    email: sessionData.email,
+    name: sessionData.name
   });
   
   onlyFansView = new BrowserView({
@@ -317,6 +320,10 @@ async function createOnlyFansView(sessionData) {
       // ВАЖНО: Используем details.requestHeaders (НЕ details.headers!)
       // Использование details.headers сломает cookies!
       const requestHeaders = { ...details.requestHeaders };
+      
+      // КРИТИЧНО: Сохраняем Cookie header явно (Electron может его потерять!)
+      // Если Cookie header присутствует - сохраняем его для восстановления в конце
+      const originalCookie = requestHeaders['Cookie'] || requestHeaders['cookie'];
       
       // Определяем является ли это API запросом
       const isApiRequest = details.url.includes('/api2/') || details.url.includes('/api/');
@@ -424,18 +431,28 @@ async function createOnlyFansView(sessionData) {
         }
       }
       
-      // ========== DEBUG: Логируем API запросы (БЕЗ sensitive headers!) ==========
+      // КРИТИЧНО: Восстанавливаем Cookie header если он был потерян!
+      // Electron иногда теряет Cookie header при модификации requestHeaders
+      if (originalCookie && !requestHeaders['Cookie'] && !requestHeaders['cookie']) {
+        requestHeaders['Cookie'] = originalCookie;
+        if (process.env.NODE_ENV === 'development') {
+          console.log('🔧 [FIX] Восстановлен потерянный Cookie header');
+        }
+      }
+      
+      // ========== FULL DEBUG: Логируем ВСЁ (БЕЗ ФИЛЬТРОВ!) ==========
       if (isApiRequest && process.env.NODE_ENV === 'development') {
-        console.log('📤 [DEBUG] OnlyFans API request:', details.url);
-        // NOTE: NOT logging x-bc, sign, time, app-token - these are sensitive credentials!
-        console.log('   Headers present:', {
-          'x-bc': requestHeaders['x-bc'] ? 'YES' : 'NO',
-          'sign': requestHeaders['sign'] ? 'YES' : 'NO',
-          'time': requestHeaders['time'] ? 'YES' : 'NO',
-          'app-token': requestHeaders['app-token'] ? 'YES' : 'NO',
-          'Origin': requestHeaders['Origin'] || 'NOT SET',
-          'Referer': requestHeaders['Referer'] ? 'YES' : 'NO'
-        });
+        console.log('📤 [FULL DEBUG] OnlyFans API request:', details.url);
+        console.log('   🔑 FULL REQUEST HEADERS:');
+        console.log('   x-bc:', requestHeaders['x-bc'] || 'MISSING');
+        console.log('   sign:', requestHeaders['sign'] || 'MISSING');
+        console.log('   time:', requestHeaders['time'] || 'MISSING');
+        console.log('   app-token:', requestHeaders['app-token'] || 'MISSING');
+        console.log('   x-of-rev:', requestHeaders['x-of-rev'] || 'MISSING');
+        console.log('   User-Agent:', requestHeaders['User-Agent'] || 'MISSING');
+        console.log('   Origin:', requestHeaders['Origin'] || 'NOT SET');
+        console.log('   Referer:', requestHeaders['Referer'] || 'MISSING');
+        console.log('   🍪 FULL COOKIE:', requestHeaders['Cookie'] || '❌ NO COOKIES!');
       }
       
       // Передаём модифицированные headers обратно
@@ -445,15 +462,31 @@ async function createOnlyFansView(sessionData) {
       });
     };
     
-    // Регистрируем interceptor
+    // Регистрируем interceptor для REQUEST
     ses.webRequest.onBeforeSendHeaders(
       { urls: ['https://onlyfans.com/*', 'https://*.onlyfans.com/*'] },
       requestInterceptor
     );
     
+    // ДОБАВЛЯЕМ INTERCEPTOR ДЛЯ RESPONSE (ПОЛНОЕ ЛОГИРОВАНИЕ!)
+    ses.webRequest.onHeadersReceived(
+      { urls: ['https://onlyfans.com/*', 'https://*.onlyfans.com/*'] },
+      (details, callback) => {
+        const isApiRequest = details.url.includes('/api2/') || details.url.includes('/api/');
+        
+        if (isApiRequest && process.env.NODE_ENV === 'development') {
+          console.log('📥 [FULL DEBUG] OnlyFans API response:', details.url);
+          console.log('   Status:', details.statusCode);
+          console.log('   📋 RESPONSE HEADERS:', JSON.stringify(details.responseHeaders, null, 2));
+        }
+        
+        callback({ cancel: false });
+      }
+    );
+    
     // Сохраняем handler для возможного удаления позже
     webRequestHandlers.set(partitionName, requestInterceptor);
-    console.log('✅ webRequest interceptor установлен (динамические + статические headers)');
+    console.log('✅ webRequest interceptor установлен (REQUEST + RESPONSE логирование)');
   } else {
     console.log('ℹ️ webRequest interceptor уже установлен для этой partition');
   }
@@ -916,6 +949,7 @@ async function setOnlyFansCookies(sessionData) {
   for (const [name, value] of cookieMap) {
     const cookieDetails = {
       url: 'https://onlyfans.com',
+      domain: '.onlyfans.com',
       name: name,
       value: value,
       path: '/',
@@ -964,6 +998,11 @@ async function setOnlyFansCookies(sessionData) {
       console.error(`   x-bc:      ${sessionData.xBc}`);
     }
   }
+  
+  // КРИТИЧНО: Форсируем запись cookies на диск ПЕРЕД загрузкой страницы
+  console.log('💾 Форсируем запись cookies на диск...');
+  await ses.flushStorageData();
+  console.log('✅ Cookies гарантированно записаны на диск');
   
   // If too many failures, clear partition and throw
   if (failCount > cookieMap.size / 2) {
