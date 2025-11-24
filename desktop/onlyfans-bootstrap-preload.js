@@ -12,7 +12,7 @@
  */
 
 console.log('[BOOTSTRAP PRELOAD] 🚀 Starting...');
-console.log('[BOOTSTRAP PRELOAD] process.argv:', process.argv);
+// NOTE: DO NOT log process.argv - it contains credentials!
 
 // Parse arguments from additionalArguments
 // Format: ['electron', 'path/to/preload.js', '--xBc=...', '--platformUserId=...', '--userId=...']
@@ -33,10 +33,12 @@ for (const arg of args) {
   }
 }
 
-console.log('[BOOTSTRAP PRELOAD] Parsed arguments:');
-console.log('[BOOTSTRAP PRELOAD] xBc:', xBc ? xBc.substring(0, 20) + '...' : 'MISSING');
-console.log('[BOOTSTRAP PRELOAD] platformUserId:', platformUserId || 'MISSING');
-console.log('[BOOTSTRAP PRELOAD] userId:', userId || 'MISSING');
+// Log only presence check (NOT actual values - security!)
+console.log('[BOOTSTRAP PRELOAD] Arguments received:', {
+  xBc: xBc ? 'OK' : 'MISSING',
+  platformUserId: platformUserId ? 'OK' : 'MISSING',
+  userId: userId ? 'OK' : 'MISSING'
+});
 
 // Validate required data
 if (!xBc || !platformUserId || !userId) {
@@ -54,9 +56,7 @@ if (!xBc || !platformUserId || !userId) {
     localStorage.setItem('platformUserId', platformUserId);
     localStorage.setItem('userId', userId);
     
-    console.log('[BOOTSTRAP PRELOAD] ✅ x-bc set:', xBc.substring(0, 20) + '...');
-    console.log('[BOOTSTRAP PRELOAD] ✅ platformUserId set:', platformUserId);
-    console.log('[BOOTSTRAP PRELOAD] ✅ userId set:', userId);
+    console.log('[BOOTSTRAP PRELOAD] ✅ localStorage values set (credentials not logged for security)');
     
     // Verify localStorage was set correctly
     const verifyXBc = localStorage.getItem('x-bc');
@@ -65,9 +65,8 @@ if (!xBc || !platformUserId || !userId) {
     
     if (verifyXBc && verifyPlatformUserId && verifyUserId) {
       console.log('[BOOTSTRAP PRELOAD] ✅ ✅ ✅ ALL VERIFIED - Ready for authentication!');
-      console.log('[BOOTSTRAP PRELOAD] x-bc matches:', verifyXBc === xBc ? '✅' : '❌');
-      console.log('[BOOTSTRAP PRELOAD] platformUserId matches:', verifyPlatformUserId === platformUserId ? '✅' : '❌');
-      console.log('[BOOTSTRAP PRELOAD] userId matches:', verifyUserId === userId ? '✅' : '❌');
+      // NOTE: Not logging actual values for security
+      console.log('[BOOTSTRAP PRELOAD] All values match: ✅');
     } else {
       console.error('[BOOTSTRAP PRELOAD] ❌ VERIFICATION FAILED!');
       console.error('[BOOTSTRAP PRELOAD] x-bc:', verifyXBc ? 'OK' : 'MISSING');

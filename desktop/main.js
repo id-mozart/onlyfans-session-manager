@@ -279,9 +279,12 @@ async function createOnlyFansView(sessionData) {
   
   // Подготавливаем данные для передачи через additionalArguments
   console.log(`[BOOTSTRAP] Preparing additionalArguments for partition: ${partitionName}`);
-  console.log(`[BOOTSTRAP] xBc: ${sessionData.xBc ? sessionData.xBc.substring(0, 20) + '...' : 'MISSING'}`);
-  console.log(`[BOOTSTRAP] platformUserId: ${sessionData.platformUserId || 'MISSING'}`);
-  console.log(`[BOOTSTRAP] userId: ${sessionData.userId || 'MISSING'}`);
+  // NOTE: Not logging actual credential values for security
+  console.log(`[BOOTSTRAP] Data availability:`, {
+    xBc: sessionData.xBc ? 'OK' : 'MISSING',
+    platformUserId: sessionData.platformUserId ? 'OK' : 'MISSING',
+    userId: sessionData.userId ? 'OK' : 'MISSING'
+  });
   
   onlyFansView = new BrowserView({
     webPreferences: {
