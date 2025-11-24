@@ -405,6 +405,28 @@ async function createOnlyFansView(sessionData) {
     console.warn('⚠️ User-Agent отсутствует в sessionData!');
   }
 
+  // ========== КРИТИЧНО! Очистить partition ПЕРЕД установкой cookies ==========
+  // ПРОБЛЕМА: Partition переиспользуется и старые cookies смешиваются с новыми
+  // РЕШЕНИЕ: Всегда очищаем partition перед установкой новых cookies
+  console.log('🧹 Очищаем partition перед установкой cookies...');
+  await ses.clearStorageData({
+    storages: ['cookies', 'localstorage', 'sessionstorage', 'filesystem', 'indexdb', 'serviceworkers', 'cachestorage']
+  });
+  
+  // Проверяем что cookies действительно удалились
+  const cookiesBeforeSet = await ses.cookies.get({ url: 'https://onlyfans.com' });
+  console.log(`🔍 VERIFICATION - Cookies в partition после очистки: ${cookiesBeforeSet.length}`);
+  if (cookiesBeforeSet.length > 0) {
+    console.warn('⚠️ Обнаружены остаточные cookies после clearStorageData:');
+    cookiesBeforeSet.forEach(c => console.warn(`   - ${c.name}`));
+    // Force дополнительная очистка
+    await ses.clearCache();
+    await ses.flushStorageData();
+    console.log('🧹 Выполнена дополнительная очистка (clearCache + flushStorageData)');
+  } else {
+    console.log('✅ Partition полностью чистая, готова к установке новых cookies');
+  }
+
   // Установить cookies перед загрузкой
   try {
     console.log('🍪 Устанавливаем cookies...');
@@ -413,74 +435,18 @@ async function createOnlyFansView(sessionData) {
     
     // Создаём promise для отслеживания загрузки с таймаутом
     let loadFinished = false;
-    let localStorageSet = false; // Флаг для отслеживания установки localStorage
     
     // Обработчики событий загрузки (устанавливаем ДО loadURL)
     onlyFansView.webContents.on('did-finish-load', async () => {
-      // ========== ВАЖНО! Не используем loadFinished guard чтобы overlay переустанавливался ==========
+      // ========== localStorage устанавливается через preload bootstrap system! ==========
+      // Preload script выполнился ДО загрузки OnlyFans, поэтому localStorage уже установлен
       
-      // Первая загрузка - устанавливаем localStorage и перезагружаем
-      if (!localStorageSet) {
-        console.log('✅ OnlyFans загружен (первый раз) - устанавливаем localStorage...');
-        localStorageSet = true;
-        
-        // ========== КРИТИЧНО! Установить x-bc и другие данные в localStorage ==========
-        try {
-          const localStorageScript = `
-            (function() {
-              console.log('🔧 [DESKTOP] Устанавливаем localStorage для OnlyFans...');
-              ${sessionData.xBc ? `localStorage.setItem('x-bc', '${sessionData.xBc}');
-              console.log('✅ [DESKTOP] x-bc установлен:', '${sessionData.xBc}');` : ''}
-              ${sessionData.platformUserId ? `localStorage.setItem('platformUserId', '${sessionData.platformUserId}');
-              console.log('✅ [DESKTOP] platformUserId установлен');` : ''}
-              ${sessionData.userId ? `localStorage.setItem('userId', '${sessionData.userId}');
-              console.log('✅ [DESKTOP] userId установлен');` : ''}
-              console.log('🎯 [DESKTOP] localStorage настроен!');
-              return true;
-            })();
-          `;
-          
-          const result = await onlyFansView.webContents.executeJavaScript(localStorageScript);
-          console.log('✅ localStorage установлен, результат:', result);
-          
-          // ПРОВЕРЯЕМ что localStorage действительно установлен
-          const verifyScript = `
-            (function() {
-              const xBc = localStorage.getItem('x-bc');
-              const userId = localStorage.getItem('userId');
-              const platformUserId = localStorage.getItem('platformUserId');
-              console.log('🔍 VERIFICATION - localStorage:');
-              console.log('  x-bc:', xBc ? xBc.substring(0, 20) + '...' : 'ОТСУТСТВУЕТ');
-              console.log('  userId:', userId || 'ОТСУТСТВУЕТ');
-              console.log('  platformUserId:', platformUserId || 'ОТСУТСТВУЕТ');
-              return { xBc: !!xBc, userId: !!userId, platformUserId: !!platformUserId };
-            })();
-          `;
-          const verification = await onlyFansView.webContents.executeJavaScript(verifyScript);
-          console.log('🔍 VERIFICATION результат:', verification);
-          
-          // После установки localStorage - перезагружаем страницу чтобы OnlyFans использовал новые данные
-          console.log('🔄 Перезагружаем OnlyFans для применения localStorage...');
-          await onlyFansView.webContents.reload();
-          
-        } catch (error) {
-          console.error('❌ Ошибка установки localStorage:', error);
-          // Продолжаем даже если ошибка
-          loadFinished = true;
-          mainWindow.addBrowserView(onlyFansView);
-          const bounds = mainWindow.getContentBounds();
-          onlyFansView.setBounds({ x: 0, y: 0, width: bounds.width, height: bounds.height });
-          mainWindow.webContents.send('onlyfans-loaded');
-        }
-        return; // Выходим и ждём второй загрузки
-      }
-      
-      // Вторая загрузка (после reload) - показываем BrowserView и внедряем overlay
+      // При первой загрузке - показываем BrowserView
       if (!loadFinished) {
         loadFinished = true;
-        console.log('✅ OnlyFans перезагружен с localStorage - показываем BrowserView первый раз');
+        console.log('✅ OnlyFans загружен - показываем BrowserView');
       
-        // ТЕПЕРЬ добавляем BrowserView и устанавливаем размеры (только при первой загрузке)
+        // Добавляем BrowserView и устанавливаем размеры
         mainWindow.addBrowserView(onlyFansView);
         const bounds = mainWindow.getContentBounds();
         onlyFansView.setBounds({ 
