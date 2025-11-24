@@ -749,8 +749,7 @@ async function setOnlyFansCookies(sessionData) {
   // Парсим cookie string (БЕЗ пробела после точки с запятой!)
   const cookieStrings = sessionData.cookie.split(';').filter(s => s.trim().length > 0);
   
-  console.log('🔢 Parsed cookies count:', cookieStrings.length);
-  console.log('📝 Parsed cookies:', cookieStrings);
+  console.log('🔢 Parsed cookies count (before deduplication):', cookieStrings.length);
   
   // If no cookies to set, return early
   if (cookieStrings.length === 0) {
@@ -758,26 +757,55 @@ async function setOnlyFansCookies(sessionData) {
     return;
   }
   
-  const cookiePromises = [];
-  let successCount = 0;
-  let failCount = 0;
-
+  // ========== КРИТИЧНО! ДЕДУПЛИКАЦИЯ COOKIES ==========
+  // ПРОБЛЕМА: Cookie string может содержать дубликаты (fp=old; fp=new)
+  // РЕШЕНИЕ: Парсим в Map, оставляем только одно значение для каждого имени
+  const cookieMap = new Map();
+  
   for (const cookieStr of cookieStrings) {
     const [name, ...valueParts] = cookieStr.split('=');
     const value = valueParts.join('=');
-
+    
     if (!name || !value) {
       console.warn('⚠️ Skipping invalid cookie:', cookieStr);
       continue;
     }
+    
+    const cookieName = name.trim();
+    const cookieValue = value.trim();
+    
+    // КРИТИЧНО: Для fp используем sessionData.xBc (должно совпадать с x-bc header!)
+    if (cookieName === 'fp') {
+      if (sessionData.xBc) {
+        cookieMap.set('fp', sessionData.xBc);
+        console.log(`🔧 FORCED fp to match x-bc: ${sessionData.xBc.substring(0, 20)}...`);
+      } else {
+        cookieMap.set('fp', cookieValue);
+        console.warn('⚠️ No xBc in sessionData, using fp from cookie string');
+      }
+    } 
+    // Для остальных cookies - оставляем последнее значение (самое свежее)
+    else {
+      if (cookieMap.has(cookieName)) {
+        console.log(`🔄 Replacing duplicate cookie: ${cookieName}`);
+      }
+      cookieMap.set(cookieName, cookieValue);
+    }
+  }
+  
+  console.log(`✅ Deduplicated cookies count: ${cookieMap.size}`);
+  console.log('📝 Final cookies:', Array.from(cookieMap.keys()));
+  
+  // ========== УСТАНОВКА COOKIES ==========
+  const cookiePromises = [];
+  let successCount = 0;
+  let failCount = 0;
 
-    // ВАЖНО: Устанавливаем cookie БЕЗ domain (пусть браузер сам определит)
-    // Это более надёжно чем указывать .onlyfans.com или onlyfans.com
+  for (const [name, value] of cookieMap) {
     const cookieDetails = {
       url: 'https://onlyfans.com',
-      name: name.trim(),
-      value: value.trim(),
-      // domain: '.onlyfans.com', // НЕ указываем domain - пусть браузер определит
+      name: name,
+      value: value,
       path: '/',
       secure: true,
       httpOnly: false, // ВАЖНО: OnlyFans читает cookies из JavaScript
@@ -785,17 +813,17 @@ async function setOnlyFansCookies(sessionData) {
       expirationDate: Math.floor(Date.now() / 1000) + (365 * 24 * 60 * 60)
     };
 
-    console.log(`🍪 Setting cookie: ${name.trim()} = ${value.trim().substring(0, 20)}...`);
+    console.log(`🍪 Setting cookie: ${name} = ${value.substring(0, 20)}...`);
 
     cookiePromises.push(
       ses.cookies.set(cookieDetails)
         .then(() => {
-          console.log('✅ Set cookie:', name.trim());
+          console.log('✅ Set cookie:', name);
           successCount++;
           return true;
         })
         .catch(error => {
-          console.error('❌ Error setting cookie:', name.trim(), error.message);
+          console.error('❌ Error setting cookie:', name, error.message);
           failCount++;
           return null;
         })
@@ -808,16 +836,28 @@ async function setOnlyFansCookies(sessionData) {
   
   // Проверяем что cookies действительно установлены
   const installedCookies = await ses.cookies.get({ url: 'https://onlyfans.com' });
-  console.log('🔍 VERIFICATION - Cookies в partition:', installedCookies.length);
+  console.log('🔍 VERIFICATION - Cookies в partition после установки:', installedCookies.length);
   installedCookies.forEach(c => {
     console.log(`   ✓ ${c.name} = ${c.value.substring(0, 20)}...`);
   });
   
+  // КРИТИЧНО: Проверяем что fp совпадает с x-bc
+  const fpCookie = installedCookies.find(c => c.name === 'fp');
+  if (fpCookie && sessionData.xBc) {
+    if (fpCookie.value === sessionData.xBc) {
+      console.log('✅ VERIFICATION - fp cookie matches x-bc fingerprint!');
+    } else {
+      console.error('❌ CRITICAL - fp cookie DOES NOT match x-bc!');
+      console.error(`   fp cookie: ${fpCookie.value}`);
+      console.error(`   x-bc:      ${sessionData.xBc}`);
+    }
+  }
+  
   // If too many failures, clear partition and throw
-  if (failCount > cookieStrings.length / 2) {
+  if (failCount > cookieMap.size / 2) {
     console.error('❌ Слишком много ошибок при установке cookies, очищаем partition');
     await ses.clearStorageData();
-    throw new Error(`Failed to set ${failCount} out of ${cookieStrings.length} cookies`);
+    throw new Error(`Failed to set ${failCount} out of ${cookieMap.size} cookies`);
   }
 }
 
