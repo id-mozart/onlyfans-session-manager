@@ -10,6 +10,7 @@ let onlyFansView;
 
 // Map для хранения webRequest handlers по partition name (избегаем дублирования)
 const webRequestHandlers = new Map();
+const headerCacheTimestamps = new Map(); // Track last header generation time per session
 
 // ========== OFAuth Headers Generation via Server ==========
 // Desktop app обращается к нашему серверу для генерации headers
@@ -158,11 +159,9 @@ async function createOnlyFansView(sessionData) {
   // Сообщить UI о начале загрузки
   mainWindow.webContents.send('onlyfans-loading');
 
-  // Удалить предыдущий view если есть
+  // Удалить предыдущий view если есть (с очисткой памяти)
   if (onlyFansView) {
-    mainWindow.removeBrowserView(onlyFansView);
-    onlyFansView.webContents.destroy();
-    onlyFansView = null;
+    await closeOnlyFansView();
   }
 
   // Создать новый BrowserView с УНИКАЛЬНОЙ partition для каждой сессии
@@ -244,11 +243,11 @@ async function createOnlyFansView(sessionData) {
       
       // ========== Статические headers (всегда добавляем) ==========
       
-      // 1. КРИТИЧНО: User-Id header для OnlyFans API
-      // Note: OnlyFans принимает как "user-id" так и "User-Id", но используем PascalCase
-      if (sessionData.userId) {
-        requestHeaders['user-id'] = String(sessionData.userId);
-      }
+      // КРИТИЧНО: НЕ добавляем user-id header!
+      // Анализ успешных запросов показал что user-id header НЕ отправляется браузером
+      // User ID передается через cookie auth_id, а НЕ через отдельный header
+      // Ранее я ошибочно добавлял этот header, что вызывало 400 ошибки
+      // УДАЛЕНО: requestHeaders['user-id'] = sessionData.userId
       
       // 2. User-Agent (на всякий случай, хотя уже установлен через setUserAgent)
       if (sessionData.userAgent && !requestHeaders['User-Agent']) {
@@ -260,9 +259,10 @@ async function createOnlyFansView(sessionData) {
         if (!requestHeaders['Referer']) {
           requestHeaders['Referer'] = 'https://onlyfans.com/';
         }
-        if (!requestHeaders['Origin']) {
-          requestHeaders['Origin'] = 'https://onlyfans.com';
-        }
+        // КРИТИЧНО: НЕ добавляем Origin header для API запросов!
+        // OnlyFans возвращает 400 если Origin присутствует в API запросах
+        // Анализ успешных запросов показал, что браузер НЕ отправляет Origin для same-origin запросов
+        // Удалено: if (!requestHeaders['Origin']) { requestHeaders['Origin'] = 'https://onlyfans.com'; }
         if (!requestHeaders['Accept']) {
           requestHeaders['Accept'] = 'application/json, text/plain, */*';
         }
@@ -296,6 +296,18 @@ async function createOnlyFansView(sessionData) {
         if (!requestHeaders['sec-ch-ua-platform']) {
           requestHeaders['sec-ch-ua-platform'] = '"Windows"';
         }
+      }
+      
+      // ========== DEBUG: Логируем итоговые headers для API запросов ==========
+      if (isApiRequest) {
+        console.log('📤 [DEBUG] Отправка API запроса к OnlyFans:');
+        console.log('   URL:', details.url);
+        console.log('   x-bc:', requestHeaders['x-bc']);
+        console.log('   app-token:', requestHeaders['app-token']);
+        console.log('   sign:', requestHeaders['sign']);
+        console.log('   time:', requestHeaders['time']);
+        console.log('   Origin:', requestHeaders['Origin'] || '(не установлен - правильно!)');
+        console.log('   Referer:', requestHeaders['Referer']);
       }
       
       // Передаём модифицированные headers обратно
@@ -612,7 +624,7 @@ async function createOnlyFansView(sessionData) {
       }
     });
 
-    onlyFansView.webContents.on('did-fail-load', (event, errorCode, errorDescription) => {
+    onlyFansView.webContents.on('did-fail-load', async (event, errorCode, errorDescription) => {
       if (loadFinished) return;
       loadFinished = true;
       console.error('❌ Ошибка загрузки OnlyFans:', errorCode, errorDescription);
@@ -620,9 +632,7 @@ async function createOnlyFansView(sessionData) {
       
       // Очистка при ошибке
       if (onlyFansView) {
-        mainWindow.removeBrowserView(onlyFansView);
-        onlyFansView.webContents.destroy();
-        onlyFansView = null;
+        await closeOnlyFansView();
       }
     });
 
@@ -632,7 +642,7 @@ async function createOnlyFansView(sessionData) {
     await onlyFansView.webContents.loadURL('https://onlyfans.com/my/profile');
     
     // Таймаут 30 секунд на загрузку
-    setTimeout(() => {
+    setTimeout(async () => {
       if (!loadFinished && onlyFansView) {
         loadFinished = true;
         console.error('⏱️ Таймаут загрузки OnlyFans (30 секунд)');
@@ -640,9 +650,7 @@ async function createOnlyFansView(sessionData) {
         
         // Очистка
         if (onlyFansView) {
-          mainWindow.removeBrowserView(onlyFansView);
-          onlyFansView.webContents.destroy();
-          onlyFansView = null;
+          await closeOnlyFansView();
         }
       }
     }, 30000);
@@ -666,14 +674,58 @@ async function createOnlyFansView(sessionData) {
 }
 
 // Закрыть OnlyFans view и вернуться к главному интерфейсу
-function closeOnlyFansView() {
+async function closeOnlyFansView() {
   if (onlyFansView) {
-    mainWindow.removeBrowserView(onlyFansView);
-    onlyFansView.webContents.destroy();
-    onlyFansView = null;
-    console.log('✅ OnlyFans view закрыт');
-    // Notify renderer that view is closed
-    mainWindow.webContents.send('onlyfans-closed');
+    try {
+      // 1. Remove view from window FIRST
+      mainWindow.removeBrowserView(onlyFansView);
+      
+      // 2. Get partition name for cleanup
+      const partitionName = onlyFansView.webContents.session.partition;
+      
+      // 3. Remove webRequest handlers to prevent leaks
+      if (webRequestHandlers.has(partitionName)) {
+        console.log('🧹 Removing webRequest handlers for partition:', partitionName);
+        const session = onlyFansView.webContents.session;
+        // Pass null to remove ALL handlers
+        session.webRequest.onBeforeSendHeaders(null);
+        session.webRequest.onHeadersReceived(null);
+        webRequestHandlers.delete(partitionName);
+      }
+      
+      // 4. Clear header cache for this session
+      const sessionId = partitionName.replace('persist:onlyfans-', '');
+      headerCacheTimestamps.delete(sessionId);
+      
+      // 5. Clear session data to free memory
+      const viewSession = onlyFansView.webContents.session;
+      console.log('🧹 Clearing session data for partition...');
+      await viewSession.clearStorageData({
+        storages: ['cookies', 'localstorage', 'cachestorage', 'filesystem', 'indexdb']
+      });
+      
+      // 6. Force close webContents (fixes memory leak)
+      onlyFansView.webContents.close();
+      
+      // 7. Destroy and nullify
+      onlyFansView.webContents.destroy();
+      onlyFansView = null;
+      
+      // 8. Force garbage collection if available
+      if (global.gc) {
+        console.log('♻️ Running garbage collection...');
+        global.gc();
+      }
+      
+      console.log('✅ OnlyFans view закрыт и память полностью очищена');
+      // Notify renderer that view is closed
+      mainWindow.webContents.send('onlyfans-closed');
+    } catch (error) {
+      console.error('⚠️ Error during cleanup:', error);
+      // Still nullify the view
+      onlyFansView = null;
+      mainWindow.webContents.send('onlyfans-closed');
+    }
   }
 }
 

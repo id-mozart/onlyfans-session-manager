@@ -25,7 +25,9 @@ The interface is inspired by Material Design 3, utilizing the Inter font for cle
   - **Server-Side Generation**: OFAUTH_API_KEY stays on server (Replit Secrets), never exposed to desktop app
   - **Automatic Header Injection**: webRequest interceptor in desktop app detects OnlyFans API calls and requests headers from server
   - **Smart Caching**: Headers cached on both server and desktop app (10 seconds each) to minimize API calls
-  - **Session-Specific Headers**: Combines OFAuth dynamic headers (sign, time, app-token, x-of-rev) with session-specific data (x-bc device fingerprint, user-id, cookies) added locally
+  - **Session-Specific Headers**: Combines OFAuth dynamic headers (sign, time, app-token, x-of-rev) with session-specific data (x-bc device fingerprint, cookies) added locally
+  - **CRITICAL**: User ID is passed to OFAuth for signature generation but is NOT sent as a header. User identification happens via `auth_id` cookie only. Adding `user-id` header causes 400 errors.
+  - **No Origin Header**: OnlyFans rejects API requests with `Origin` header for same-origin requests. Header must be omitted.
   - **Fallback Support**: Falls back to static headers (x-bc, app-token) if server/OFAuth API unavailable
   - **Secure Architecture**: Desktop app connects to `https://session-of.replit.app` by default (configurable via SERVER_URL env var)
   - **Rate Limits**: 30 requests/minute to OFAuth Sign API endpoint, mitigated by dual-layer caching
