@@ -736,8 +736,11 @@ async function setOnlyFansCookies(sessionData) {
   
   // Очистить ВСЕ данные partition перед установкой новых cookies
   try {
-    await ses.clearStorageData();
-    console.log('🧹 Partition полностью очищен');
+    // КРИТИЧНО: Явно указываем что нужно очистить cookies и localStorage
+    await ses.clearStorageData({
+      storages: ['cookies', 'localstorage', 'cachestorage', 'filesystem', 'indexdb']
+    });
+    console.log('🧹 Partition полностью очищен (включая cookies)');
   } catch (error) {
     console.warn('⚠️ Не удалось очистить partition:', error);
   }
