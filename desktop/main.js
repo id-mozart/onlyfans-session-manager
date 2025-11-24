@@ -12,6 +12,10 @@ let onlyFansView;
 const webRequestHandlers = new Map();
 const headerCacheTimestamps = new Map(); // Track last header generation time per session
 
+// Map для хранения bootstrap data (xBc, platformUserId, userId) per partition
+// Используется preload script'ом для установки localStorage ДО первого запроса
+const sessionBootstrapData = new Map();
+
 // ========== OFAuth Headers Generation via Server ==========
 // Desktop app обращается к нашему серверу для генерации headers
 // Сервер имеет OFAUTH_API_KEY и вызывает OFAuth API
@@ -166,13 +170,32 @@ async function createOnlyFansView(sessionData) {
 
   // Создать новый BrowserView с УНИКАЛЬНОЙ partition для каждой сессии
   const partitionName = `persist:onlyfans-${sessionData.id}`;
+  
+  // ========== КРИТИЧНО! Сохраняем bootstrap data ДО создания BrowserView ==========
+  // Preload script будет читать эти данные через синхронный IPC
+  sessionBootstrapData.set(partitionName, {
+    xBc: sessionData.xBc,
+    platformUserId: sessionData.platformUserId,
+    userId: sessionData.userId
+  });
+  console.log(`[BOOTSTRAP] Сохранили data для partition: ${partitionName}`);
+  
+  // ========== Регистрируем preload script для этой session ==========
+  const ses = session.fromPartition(partitionName);
+  const bootstrapPreloadPath = path.join(__dirname, 'onlyfans-bootstrap-preload.js');
+  
+  // Устанавливаем preload scripts которые будут выполняться ДО загрузки страницы
+  // ВАЖНО: Это должно быть сделано ДО создания BrowserView!
+  ses.setPreloads([bootstrapPreloadPath]);
+  console.log(`[BOOTSTRAP] Зарегистрировали preload: ${bootstrapPreloadPath}`);
+  
   onlyFansView = new BrowserView({
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
       webSecurity: true,
       partition: partitionName,
-      preload: path.join(__dirname, 'browserViewPreload.js') // ← Добавляем preload!
+      preload: path.join(__dirname, 'browserViewPreload.js') // overlay preload
     }
   });
 
@@ -180,7 +203,6 @@ async function createOnlyFansView(sessionData) {
   // mainWindow.addBrowserView(onlyFansView); // УДАЛЕНО
 
   // ========== КРИТИЧНО! Добавить динамические headers ко ВСЕМ запросам OnlyFans API ==========
-  const ses = session.fromPartition(partitionName);
   
   // Проверяем существует ли уже handler для этой partition (избегаем дублирования)
   if (!webRequestHandlers.has(partitionName)) {
@@ -638,6 +660,8 @@ async function createOnlyFansView(sessionData) {
 
     // Начинаем загрузку (BrowserView ещё не показан)
     // ВАЖНО: Загружаем ЗАЩИЩЁННУЮ страницу (профиль) вместо главной, чтобы сразу проверить аутентификацию
+    // ПРИМЕЧАНИЕ: x-bc автоматически добавляется через webRequest interceptor (строка ~217)
+    // localStorage будет установлен в did-finish-load callback
     console.log('🌐 Загружаем https://onlyfans.com/my/profile ...');
     await onlyFansView.webContents.loadURL('https://onlyfans.com/my/profile');
     
@@ -682,6 +706,12 @@ async function closeOnlyFansView() {
       
       // 2. Get partition name for cleanup
       const partitionName = onlyFansView.webContents.session.partition;
+      
+      // 2.5. Clear bootstrap data to prevent credential leaks
+      if (sessionBootstrapData.has(partitionName)) {
+        sessionBootstrapData.delete(partitionName);
+        console.log(`[BOOTSTRAP] Очистили data для partition: ${partitionName}`);
+      }
       
       // 3. Remove webRequest handlers to prevent leaks
       if (webRequestHandlers.has(partitionName)) {
@@ -824,6 +854,28 @@ async function setOnlyFansCookies(sessionData) {
     throw new Error(`Failed to set ${failCount} out of ${cookieStrings.length} cookies`);
   }
 }
+
+// ========== IPC Handler for Bootstrap Data (Synchronous) ==========
+// Preload script вызывает это синхронно для получения bootstrap data
+ipcMain.on('of:get-bootstrap-data', (event) => {
+  try {
+    // Получаем partition из sender
+    const partition = event.sender.session.partition;
+    const bootstrapData = sessionBootstrapData.get(partition);
+    
+    if (!bootstrapData) {
+      console.warn(`[BOOTSTRAP IPC] No data found for partition: ${partition}`);
+      event.returnValue = null;
+      return;
+    }
+    
+    console.log(`[BOOTSTRAP IPC] Returning data for partition: ${partition}`);
+    event.returnValue = bootstrapData;
+  } catch (error) {
+    console.error('[BOOTSTRAP IPC] Error:', error);
+    event.returnValue = null;
+  }
+});
 
 // IPC Handlers
 ipcMain.handle('open-onlyfans', async (event, sessionData) => {
