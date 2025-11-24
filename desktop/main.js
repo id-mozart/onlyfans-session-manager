@@ -456,6 +456,10 @@ async function createOnlyFansView(sessionData) {
           height: bounds.height 
         });
         
+        // ========== АВТОМАТИЧЕСКИ ОТКРЫВАЕМ DEVTOOLS ДЛЯ ОТЛАДКИ ==========
+        onlyFansView.webContents.openDevTools({ mode: 'detach' });
+        console.log('🔧 DevTools открыты автоматически для отладки');
+        
         mainWindow.webContents.send('onlyfans-loaded');
       }
       
